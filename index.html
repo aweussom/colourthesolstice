@@ -1,0 +1,1503 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Colour The Solstice</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #02020b;
+      touch-action: none;
+      user-select: none;
+    }
+    canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #gl { z-index: 0; cursor: crosshair; }
+    #overlay { z-index: 1; pointer-events: none; }
+    #veil {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      display: grid;
+      place-items: center;
+      color: rgba(235, 245, 255, .82);
+      text-align: center;
+      font: 500 clamp(13px, 2vw, 18px)/1.5 system-ui, sans-serif;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      text-shadow: 0 0 18px rgba(100, 180, 255, .8);
+      transition: opacity 1.8s ease;
+    }
+    #veil strong {
+      display: block;
+      margin-bottom: .45rem;
+      font-size: clamp(20px, 4vw, 42px);
+      letter-spacing: .08em;
+      font-weight: 650;
+    }
+    #veil.hidden { opacity: 0; }
+    #controls {
+      position: fixed;
+      z-index: 3;
+      right: max(10px, env(safe-area-inset-right));
+      bottom: max(10px, env(safe-area-inset-bottom));
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      padding: 6px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 999px;
+      background: rgba(4, 7, 18, .42);
+      box-shadow: 0 5px 24px rgba(0,0,0,.28);
+      backdrop-filter: blur(10px);
+      opacity: .38;
+      transition: opacity .25s ease;
+    }
+    #controls:hover, #controls:focus-within { opacity: .92; }
+    #controls button, #controls select {
+      min-height: 32px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 999px;
+      padding: 0 10px;
+      color: rgba(245,250,255,.9);
+      background: rgba(255,255,255,.07);
+      font: 600 12px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    #controls button:hover { background: rgba(255,255,255,.16); }
+    #controls button:disabled { opacity: .34; cursor: default; }
+    #controls select { padding-right: 5px; }
+    #status {
+      min-width: 0;
+      max-width: 0;
+      overflow: hidden;
+      opacity: 0;
+      color: rgba(230,245,255,.8);
+      font: 500 11px/1 system-ui, sans-serif;
+      white-space: nowrap;
+      transition: max-width .3s ease, opacity .3s ease;
+    }
+    #status.on { max-width: 90px; opacity: 1; }
+    #error {
+      position: fixed;
+      inset: 0;
+      display: none;
+      place-items: center;
+      padding: 2rem;
+      color: white;
+      background: #080817;
+      text-align: center;
+      font: 16px/1.5 system-ui, sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gl" aria-label="Colour The Solstice interactive canvas"></canvas>
+  <canvas id="overlay" aria-hidden="true"></canvas>
+  <div id="veil">
+    <div><strong>Colour The Solstice</strong>Touch or sweep the stars</div>
+  </div>
+  <div id="controls" aria-label="Creation controls">
+    <button id="save-btn" type="button">Save</button>
+    <button id="replay-btn" type="button">Replay</button>
+    <select id="speed" aria-label="Replay speed">
+      <option value=".5">½×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+    </select>
+    <button id="png-btn" type="button">PNG</button>
+    <span id="status"></span>
+  </div>
+  <div id="error">This experiment needs WebGL. Try opening it in a current browser.</div>
+
+  <script>
+  (() => {
+    'use strict';
+
+    const display = document.getElementById('gl');
+    const overlay = document.getElementById('overlay');
+    const veil = document.getElementById('veil');
+    const errorBox = document.getElementById('error');
+    const saveButton = document.getElementById('save-btn');
+    const replayButton = document.getElementById('replay-btn');
+    const speedSelect = document.getElementById('speed');
+    const pngButton = document.getElementById('png-btn');
+    const statusEl = document.getElementById('status');
+    const scene = document.createElement('canvas');
+    const ctx = scene.getContext('2d', { alpha: true });
+    const overlayCtx = overlay.getContext('2d', { alpha: true });
+    const gl = display.getContext('webgl', {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: false
+    });
+
+    if (!gl || !ctx || !overlayCtx) {
+      errorBox.style.display = 'grid';
+      return;
+    }
+
+    const SETTINGS = {
+      pixelRatioCap: 1.5,
+      feedbackDecay: 0.965,
+      feedbackZoom: 1.0025,
+      feedbackRotation: 0.0008,
+      feedbackWarp: 0.0045,
+      maxCreatures: 24,
+      starCount: 310
+    };
+
+    const vertexSource = `
+      attribute vec2 a_position;
+      varying vec2 v_uv;
+      void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `;
+
+    const feedbackSource = `
+      precision mediump float;
+      varying vec2 v_uv;
+      uniform sampler2D u_previous;
+      uniform sampler2D u_scene;
+      uniform vec2 u_resolution;
+      uniform float u_time;
+      uniform float u_decay;
+      uniform float u_zoom;
+      uniform float u_rotation;
+      uniform float u_warp;
+
+      vec3 hueRotate(vec3 c, float a) {
+        float s = sin(a);
+        float co = cos(a);
+        mat3 m = mat3(
+          .299 + .701*co + .168*s, .587 - .587*co + .330*s, .114 - .114*co - .497*s,
+          .299 - .299*co - .328*s, .587 + .413*co + .035*s, .114 - .114*co + .292*s,
+          .299 - .300*co + 1.250*s, .587 - .588*co - 1.050*s, .114 + .886*co - .203*s
+        );
+        return clamp(m * c, 0.0, 1.4);
+      }
+
+      void main() {
+        vec2 aspect = vec2(u_resolution.x / u_resolution.y, 1.0);
+        vec2 p = (v_uv - 0.5) * aspect;
+        float radius = length(p);
+        float angle = u_rotation + sin(radius * 13.0 - u_time * 0.34) * u_warp;
+        float cs = cos(angle);
+        float sn = sin(angle);
+        p = mat2(cs, -sn, sn, cs) * p / u_zoom;
+        p += vec2(
+          sin(p.y * 9.0 + u_time * .23),
+          cos(p.x * 8.0 - u_time * .19)
+        ) * u_warp * .23;
+        vec2 oldUv = p / aspect + 0.5;
+
+        vec3 previous = texture2D(u_previous, oldUv).rgb;
+        previous = hueRotate(previous, 0.0025 + sin(u_time * .07) * .0015) * u_decay;
+        vec3 fresh = texture2D(u_scene, v_uv).rgb;
+        vec3 colour = previous + fresh;
+        colour += pow(max(colour - .55, 0.0), vec3(1.8)) * .12;
+        colour *= 1.0 - smoothstep(.52, .9, radius) * .28;
+        gl_FragColor = vec4(colour, 1.0);
+      }
+    `;
+
+    const copySource = `
+      precision mediump float;
+      varying vec2 v_uv;
+      uniform sampler2D u_texture;
+      uniform vec2 u_resolution;
+      uniform float u_time;
+
+      vec3 rainbow(float h) {
+        return .52 + .48 * cos(6.28318 * (h + vec3(0.0, .33, .67)));
+      }
+
+      void main() {
+        vec3 c = texture2D(u_texture, v_uv).rgb;
+        c = 1.0 - exp(-c * 1.08);
+        c = pow(c, vec3(.92));
+        vec2 p = (v_uv - .5) * vec2(u_resolution.x / u_resolution.y, 1.0);
+        float cloudA = sin(p.x * 2.2 + p.y * 1.6 + u_time * .025);
+        float cloudB = cos(p.x * 1.15 - p.y * 2.7 - u_time * .018);
+        float cloud = smoothstep(-.55, 1.35, cloudA + cloudB);
+        float hue = fract(u_time * .006 + length(p) * .22 + atan(p.y, p.x) / 6.28318);
+        vec3 nebula = rainbow(hue) * cloud * .046;
+        nebula *= .35 + .65 * (1.0 - smoothstep(.05, .85, length(p)));
+        c += nebula;
+        gl_FragColor = vec4(c, 1.0);
+      }
+    `;
+
+    function compile(type, source) {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        throw new Error(gl.getShaderInfoLog(shader));
+      }
+      return shader;
+    }
+
+    function program(fragment) {
+      const p = gl.createProgram();
+      gl.attachShader(p, compile(gl.VERTEX_SHADER, vertexSource));
+      gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fragment));
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        throw new Error(gl.getProgramInfoLog(p));
+      }
+      return p;
+    }
+
+    let feedbackProgram;
+    let copyProgram;
+    try {
+      feedbackProgram = program(feedbackSource);
+      copyProgram = program(copySource);
+    } catch (error) {
+      console.error(error);
+      errorBox.textContent = 'The colour shader could not start on this device.';
+      errorBox.style.display = 'grid';
+      return;
+    }
+
+    const quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+      -1, -1, 1, -1, -1, 1,
+      -1, 1, 1, -1, 1, 1
+    ]), gl.STATIC_DRAW);
+
+    function texture() {
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return t;
+    }
+
+    const sceneTexture = texture();
+    const feedbackTextures = [texture(), texture()];
+    const framebuffers = [gl.createFramebuffer(), gl.createFramebuffer()];
+    let front = 0;
+    let width = 1;
+    let height = 1;
+    let cssWidth = 1;
+    let cssHeight = 1;
+    let dpr = 1;
+
+    function allocate(t) {
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    }
+
+    function resize() {
+      cssWidth = window.innerWidth;
+      cssHeight = window.innerHeight;
+      dpr = Math.min(window.devicePixelRatio || 1, SETTINGS.pixelRatioCap);
+      width = Math.max(2, Math.round(cssWidth * dpr));
+      height = Math.max(2, Math.round(cssHeight * dpr));
+      display.width = scene.width = overlay.width = width;
+      display.height = scene.height = overlay.height = height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      allocate(sceneTexture);
+      feedbackTextures.forEach(allocate);
+      framebuffers.forEach((fb, i) => {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, feedbackTextures[i], 0);
+      });
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, width, height);
+      front = 0;
+      buildStars();
+    }
+
+    const stars = [];
+    const creatures = [];
+    const ribbons = [];
+    const particles = [];
+    let lastTime = performance.now();
+    let elapsed = 0;
+    let touched = false;
+    let ribbonSerial = 0;
+    let gesture = null;
+    let treeGrowth = 0;
+    let gestureHistory = [];
+    let recordStartedAt = performance.now();
+    let replaying = false;
+    let replayTimers = [];
+    const STORAGE_KEY = 'colour-the-solstice:creation';
+    let lastUserActivity = performance.now();
+    let lastAmbientBirth = 0;
+
+    function random(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function seededRandom(seed) {
+      let state = seed >>> 0;
+      return () => {
+        state += 0x6D2B79F5;
+        let t = state;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+
+    function showStatus(text) {
+      statusEl.textContent = text;
+      statusEl.classList.add('on');
+      clearTimeout(showStatus.timer);
+      showStatus.timer = setTimeout(() => statusEl.classList.remove('on'), 1800);
+    }
+
+    function hasSavedCreation() {
+      try {
+        return !!localStorage.getItem(STORAGE_KEY);
+      } catch {
+        return false;
+      }
+    }
+
+    function updateControls() {
+      const hasSaved = hasSavedCreation();
+      saveButton.disabled = gestureHistory.length === 0 || replaying;
+      replayButton.disabled = (!hasSaved && gestureHistory.length === 0) || replaying;
+    }
+
+    function buildStars() {
+      stars.length = 0;
+      for (let i = 0; i < SETTINGS.starCount; i++) {
+        const layer = Math.random();
+        stars.push({
+          x: Math.random() * cssWidth,
+          y: Math.random() * cssHeight,
+          size: layer < .72 ? random(.35, 1.05) : random(1.0, 2.2),
+          alpha: random(.18, .9),
+          phase: Math.random() * Math.PI * 2,
+          speed: random(.25, 1.1),
+          drift: random(-2.2, 2.2),
+          hue: Math.random() < .15 ? random(180, 320) : random(190, 225)
+        });
+      }
+    }
+
+    function monument() {
+      const x = cssWidth * .5;
+      const base = cssHeight * .84;
+      const top = cssHeight * .24;
+      return { x, base, top, height: base - top };
+    }
+
+    function trunkPoint(y, time = 0) {
+      const m = monument();
+      const q = clamp((m.base - y) / m.height, 0, 1);
+      return {
+        x: m.x
+          + Math.sin(q * 5.2 + time * .34) * (5 + q * 7)
+          + Math.sin(q * 11.0 - time * .19) * 2.5,
+        y
+      };
+    }
+
+    function branchDefinitions(fullness) {
+      const m = monument();
+      const reach = Math.min(cssWidth * .27, 220);
+      const growth = q => {
+        const raw = clamp((fullness - q) / .46, 0, 1);
+        return raw * raw * (3 - 2 * raw);
+      };
+      return [
+        { side: -1, y: .46, length: reach * .84, lift: 76,  bend: -20, growth: growth(.10) },
+        { side:  1, y: .43, length: reach * .92, lift: 88,  bend:  24, growth: growth(.18) },
+        { side: -1, y: .61, length: reach * .73, lift: 82,  bend:  17, growth: growth(.30) },
+        { side:  1, y: .64, length: reach * .78, lift: 92,  bend: -16, growth: growth(.40) },
+        { side: -1, y: .76, length: reach * .56, lift: 78,  bend: -12, growth: growth(.52) },
+        { side:  1, y: .79, length: reach * .61, lift: 88,  bend:  13, growth: growth(.62) },
+        { side: -1, y: .84, length: reach * .34, lift: 58,  bend:   8, growth: growth(.74) },
+        { side:  1, y: .86, length: reach * .38, lift: 62,  bend:  -8, growth: growth(.80) }
+      ].map((branch, index) => ({
+        ...branch,
+        index,
+        startY: m.base - m.height * branch.y
+      }));
+    }
+
+    function cubicPoint(a, b, c, d, t) {
+      const u = 1 - t;
+      return {
+        x: u*u*u*a.x + 3*u*u*t*b.x + 3*u*t*t*c.x + t*t*t*d.x,
+        y: u*u*u*a.y + 3*u*u*t*b.y + 3*u*t*t*c.y + t*t*t*d.y
+      };
+    }
+
+    function branchPoint(branch, q, time = 0) {
+      const start = trunkPoint(branch.startY, time);
+      const grown = branch.growth;
+      const sway = Math.sin(time * .55 + branch.index * 1.7) * 5 * grown;
+      const end = {
+        x: start.x + branch.side * branch.length * grown,
+        y: start.y - branch.lift * grown + sway
+      };
+      const c1 = {
+        x: start.x + branch.side * branch.length * .24 * grown,
+        y: start.y + branch.bend * .35 * grown
+      };
+      const c2 = {
+        x: start.x + branch.side * branch.length * .68 * grown,
+        y: end.y + branch.bend * grown
+      };
+      return cubicPoint(start, c1, c2, end, clamp(q, 0, 1));
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function spawnCreature(x, y, options = {}) {
+      if (creatures.length >= SETTINGS.maxCreatures) creatures.shift();
+      const m = monument();
+      const seed = options.seed ?? Math.floor(Math.random() * 0xffffffff);
+      const rand = seededRandom(seed);
+      const randBetween = (min, max) => min + rand() * (max - min);
+      const hue = (ribbonSerial * 47 + randBetween(0, 55)) % 360;
+      const direction = Number.isFinite(options.direction)
+        ? options.direction
+        : Math.atan2(m.top + m.height * .47 - y, m.x - x);
+      const energy = clamp(options.energy ?? .38, 0, 1);
+      const hold = clamp(options.hold ?? .18, 0, 1);
+      const distance = clamp(options.distance ?? 0, 0, Math.hypot(cssWidth, cssHeight));
+      const segmentCount = clamp(Math.round(
+        18 + hold * 25 + Math.min(12, distance * .035)
+      ), 16, 56);
+      const spacing = 6.3 + energy * 3.5 + hold * 1.2;
+      const bodyLength = (segmentCount - 1) * spacing * .42;
+      const launchSpeed = options.automatic ? 35 : 28 + energy * 255;
+      const thickness = 3.2 + hold * 3.2 + (1 - energy) * .7;
+      const points = [];
+      for (let i = 0; i < segmentCount; i++) {
+        const taper = i / segmentCount;
+        const curl = Math.sin(i * .55 + hue) * taper * (2 + hold * 4);
+        points.push({
+          x: x - Math.cos(direction) * i * spacing * .42 - Math.sin(direction) * curl,
+          y: y - Math.sin(direction) * i * spacing * .42 + Math.cos(direction) * curl
+        });
+      }
+      creatures.push({
+        points,
+        vx: Math.cos(direction) * launchSpeed,
+        vy: Math.sin(direction) * launchSpeed,
+        hue,
+        age: 0,
+        orbit: options.orbit || (rand() < .5 ? -1 : 1),
+        phase: randBetween(0, Math.PI * 2),
+        targetY: clamp(
+          y + Math.sin(direction) * 65,
+          m.top + m.height * .10,
+          m.top + m.height * .82
+        ),
+        automatic: !!options.automatic,
+        energy,
+        hold,
+        spacing,
+        bodyLength,
+        thickness,
+        hueStride: 10 + energy * 20,
+        wiggleRate: 3.1 + energy * 5.4,
+        wiggleStrength: 38 + (1 - energy) * 58,
+        attraction: 92 + energy * 72,
+        maxSpeed: 155 + energy * 210,
+        attachment: {
+          turns: randBetween(1.8, 3.1) + energy * 2.3,
+          width: randBetween(12, 20) + hold * 10,
+          sway: randBetween(.65, 1.05) + (1 - energy) * .45,
+          settleTime: randBetween(1.65, 2.35)
+        }
+      });
+      ribbonSerial++;
+      const burstCount = Math.round(12 + energy * 24 + hold * 8);
+      for (let i = 0; i < burstCount; i++) {
+        particles.push(makeParticle(x, y, hue, random(25, 75 + energy * 105)));
+      }
+    }
+
+    function makeParticle(x, y, hue, speed) {
+      const a = Math.random() * Math.PI * 2;
+      return {
+        x, y,
+        vx: Math.cos(a) * speed,
+        vy: Math.sin(a) * speed,
+        life: 1,
+        decay: random(.45, 1.1),
+        size: random(.8, 3.2),
+        hue: (hue + random(-35, 35) + 360) % 360
+      };
+    }
+
+    function intervalOverlap(aStart, aSpan, bStart, bSpan) {
+      return Math.max(0, Math.min(aStart + aSpan, bStart + bSpan) - Math.max(aStart, bStart));
+    }
+
+    function openAttachmentStart(hostIndex, span, phase) {
+      const occupants = ribbons.filter(ribbon => ribbon.branchIndex === hostIndex && !ribbon.absorbTarget);
+      const maxStart = Math.max(.04, .96 - span);
+      let bestStart = .04;
+      let bestScore = Infinity;
+      for (let i = 0; i <= 18; i++) {
+        const start = .04 + (maxStart - .04) * i / 18;
+        const center = start + span * .5;
+        let score = 0;
+        for (const occupant of occupants) {
+          const occupiedStart = occupant.layoutStart ?? occupant.targetStart ?? .1;
+          const overlap = intervalOverlap(start, span, occupiedStart, occupant.hostSpan);
+          const occupiedCenter = occupiedStart + occupant.hostSpan * .5;
+          score += overlap * 9 + Math.max(0, .16 - Math.abs(center - occupiedCenter));
+        }
+        // Branch beings seek the brighter tips; trunk beings gently seek the crown.
+        score += hostIndex >= 0 ? -center * .24 : center * .12;
+        score += Math.abs(Math.sin(phase + i * 2.17)) * .008;
+        if (score < bestScore) {
+          bestScore = score;
+          bestStart = start;
+        }
+      }
+      return { start: bestStart, score: bestScore + occupants.length * .08 };
+    }
+
+    function chooseAttachmentPlacement(branches, branchSpan, trunkSpan, phase) {
+      const hosts = [-1, ...branches.map(branch => branch.index)];
+      let best = null;
+      for (const hostIndex of hosts) {
+        const span = hostIndex >= 0 ? branchSpan : trunkSpan;
+        const opening = openAttachmentStart(hostIndex, span, phase);
+        const branch = hostIndex >= 0 ? branches.find(candidate => candidate.index === hostIndex) : null;
+        const score = opening.score - (branch ? branch.growth * .14 : .015);
+        if (!best || score < best.score) {
+          best = { hostIndex, span, start: opening.start, score };
+        }
+      }
+      return best;
+    }
+
+    function attach(creature) {
+      const m = monument();
+      const index = ribbons.length;
+      // Only settle on limbs that have visibly grown far enough to carry a body.
+      const branches = branchDefinitions(treeGrowth).filter(branch => branch.growth > .38);
+      const lengthFactor = clamp((creature.bodyLength - 38) / 190, 0, 1);
+      const trunkSpan = clamp(creature.bodyLength * .72 / m.height, .07, .43);
+      const branchSpan = .18 + Math.pow(lengthFactor, .72) * .58;
+      const placement = chooseAttachmentPlacement(branches, branchSpan, trunkSpan, creature.phase);
+      const newRibbon = {
+        hue: creature.hue,
+        y: creature.targetY,
+        phase: creature.phase,
+        turns: creature.attachment.turns,
+        width: creature.attachment.width,
+        span: trunkSpan * m.height,
+        branchSpan,
+        hostSpan: placement.span,
+        layoutStart: placement.start,
+        targetStart: placement.start,
+        bodyLength: creature.bodyLength,
+        lengthFactor,
+        sway: creature.attachment.sway,
+        index,
+        sourcePoints: creature.points.map(point => ({ x: point.x, y: point.y })),
+        pointCount: creature.points.length,
+        progress: 0,
+        settleTime: creature.attachment.settleTime,
+        branchIndex: placement.hostIndex,
+        thickness: creature.thickness,
+        hold: creature.hold,
+        energy: creature.energy,
+        hueStride: creature.hueStride,
+        absorbed: 0,
+        glowUntil: 0
+      };
+      ribbons.push(newRibbon);
+      if (ribbons.length > 14) {
+        const elder = ribbons.find(ribbon =>
+          ribbon !== newRibbon
+          && ribbon.progress >= 1
+          && !ribbon.absorbTarget
+        );
+        if (elder) {
+          elder.absorbTarget = newRibbon;
+          elder.absorbed = 0;
+          newRibbon.glowUntil = elapsed + 3.2;
+        }
+      }
+      const head = creature.points[0];
+      for (let i = 0; i < 16; i++) {
+        particles.push(makeParticle(head.x, head.y, creature.hue + i * 7, random(18, 72)));
+      }
+    }
+
+    function updateRibbons(dt) {
+      for (let i = ribbons.length - 1; i >= 0; i--) {
+        const ribbon = ribbons[i];
+        ribbon.progress = Math.min(1, ribbon.progress + dt / ribbon.settleTime);
+        if (ribbon.absorbTarget) {
+          ribbon.absorbed = Math.min(1, ribbon.absorbed + dt / 2.4);
+          if (ribbon.absorbed >= 1) {
+            ribbon.absorbTarget.thickness += ribbon.thickness * .16;
+            ribbon.absorbTarget.width += ribbon.width * .10;
+            ribbon.absorbTarget.glowUntil = Math.max(ribbon.absorbTarget.glowUntil, elapsed + 2.4);
+            ribbons.splice(i, 1);
+          }
+        }
+      }
+      for (const ribbon of ribbons) {
+        if (ribbon.absorbTarget) continue;
+        const maxStart = Math.max(.04, .96 - ribbon.hostSpan);
+        const center = ribbon.targetStart + ribbon.hostSpan * .5;
+        let movement = ribbon.branchIndex >= 0 ? .0055 : -.0025;
+        for (const other of ribbons) {
+          if (other === ribbon || other.branchIndex !== ribbon.branchIndex || other.absorbTarget) continue;
+          const otherCenter = other.targetStart + other.hostSpan * .5;
+          const overlap = intervalOverlap(ribbon.targetStart, ribbon.hostSpan, other.targetStart, other.hostSpan);
+          if (overlap > 0) {
+            const direction = center === otherCenter
+              ? (ribbon.phase > other.phase ? 1 : -1)
+              : Math.sign(center - otherCenter);
+            movement += direction * overlap * .11;
+          }
+        }
+        ribbon.targetStart = clamp(ribbon.targetStart + movement * dt, .04, maxStart);
+        ribbon.layoutStart += (ribbon.targetStart - ribbon.layoutStart) * Math.min(1, dt * .16);
+      }
+      const m = monument();
+      const incomingGrowth = creatures.reduce((sum, creature) => {
+        const head = creature.points[0];
+        const target = trunkPoint(creature.targetY, elapsed);
+        const distance = Math.hypot(target.x - head.x, target.y - head.y);
+        return sum + clamp(1 - distance / Math.max(220, m.height * .48), 0, .72);
+      }, 0);
+      const targetGrowth = Math.min(1, (ribbons.length + incomingGrowth) / 12);
+      const distance = targetGrowth - treeGrowth;
+      const maxStep = dt * (incomingGrowth > .15 ? .062 : .042);
+      treeGrowth += Math.sign(distance) * Math.min(Math.abs(distance), maxStep);
+    }
+
+    function ribbonTargetPoints(ribbon, time) {
+      const points = [];
+      const branches = branchDefinitions(treeGrowth);
+      const branch = ribbon.branchIndex >= 0 ? branches[ribbon.branchIndex] : null;
+
+      for (let i = 0; i < ribbon.pointCount; i++) {
+        const q = i / Math.max(1, ribbon.pointCount - 1);
+        const angle = q * Math.PI * 2 * ribbon.turns
+          + ribbon.phase
+          + time * (.22 + ribbon.energy * .22) * ribbon.sway;
+        const pulse = 1 + Math.sin(time * (1.05 + ribbon.energy * .7) + ribbon.phase + q * 4.5) * .18;
+        const radius = ribbon.width * (.72 + Math.sin(q * Math.PI) * .28) * pulse;
+        let host;
+        let tangent;
+
+        if (branch && branch.growth > .05) {
+          const along = ribbon.layoutStart + q * ribbon.hostSpan;
+          host = branchPoint(branch, along, time);
+          const next = branchPoint(branch, Math.min(1, along + .012), time);
+          tangent = { x: next.x - host.x, y: next.y - host.y };
+        } else {
+          const along = ribbon.layoutStart + q * ribbon.hostSpan;
+          const y = monument().top + along * monument().height;
+          host = trunkPoint(y, time);
+          const next = trunkPoint(y + 2, time);
+          tangent = { x: next.x - host.x, y: next.y - host.y };
+        }
+
+        const length = Math.hypot(tangent.x, tangent.y) || 1;
+        const normal = { x: -tangent.y / length, y: tangent.x / length };
+        const smokeDrift = Math.sin(time * .72 + ribbon.phase + q * 8.0) * (2.5 + ribbon.hold * 4.5);
+        points.push({
+          x: host.x + normal.x * (Math.sin(angle) * radius + smokeDrift),
+          y: host.y + normal.y * (Math.sin(angle) * radius + smokeDrift),
+          depth: Math.cos(angle)
+        });
+      }
+      return points;
+    }
+
+    function updateCreatures(dt) {
+      const m = monument();
+      for (let ci = creatures.length - 1; ci >= 0; ci--) {
+        const c = creatures[ci];
+        c.age += dt;
+        const head = c.points[0];
+        const dx = m.x - head.x;
+        const dy = c.targetY - head.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const tx = -ny * c.orbit;
+        const ty = nx * c.orbit;
+        const approach = Math.min(1, c.age / 1.2);
+        const orbitStrength = Math.min(150, dist * .48) * (1 - Math.min(1, dist / Math.max(cssWidth, cssHeight)));
+        const wiggle = Math.sin(c.age * c.wiggleRate + c.phase) * c.wiggleStrength;
+        c.vx += (nx * c.attraction + tx * orbitStrength + tx * wiggle) * dt * approach;
+        c.vy += (ny * c.attraction + ty * orbitStrength + ty * wiggle) * dt * approach;
+        const speed = Math.hypot(c.vx, c.vy);
+        if (speed > c.maxSpeed) {
+          c.vx = c.vx / speed * c.maxSpeed;
+          c.vy = c.vy / speed * c.maxSpeed;
+        }
+        const damping = .22 + c.energy * .20;
+        c.vx *= Math.pow(damping, dt);
+        c.vy *= Math.pow(damping, dt);
+        head.x += c.vx * dt;
+        head.y += c.vy * dt;
+
+        for (let i = 1; i < c.points.length; i++) {
+          const prev = c.points[i - 1];
+          const p = c.points[i];
+          const sx = prev.x - p.x;
+          const sy = prev.y - p.y;
+          const sd = Math.hypot(sx, sy) || 1;
+          const spacing = c.spacing * (1 - i / c.points.length * .28);
+          p.x = prev.x - sx / sd * spacing;
+          p.y = prev.y - sy / sd * spacing;
+        }
+
+        if ((dist < 19 && c.age > 1.2) || c.age > 9) {
+          attach(c);
+          creatures.splice(ci, 1);
+        }
+      }
+    }
+
+    function updateParticles(dt) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= p.decay * dt;
+        p.vx *= Math.pow(.12, dt);
+        p.vy *= Math.pow(.12, dt);
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+      if (particles.length > 900) particles.splice(0, particles.length - 900);
+    }
+
+    function glowLine(points, hue, widthPx, alpha) {
+      if (points.length < 2) return;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.strokeStyle = `hsla(${hue},100%,58%,${alpha * .16})`;
+      ctx.lineWidth = widthPx * 4.2;
+      ctx.stroke();
+      ctx.strokeStyle = `hsla(${(hue + 28) % 360},100%,62%,${alpha * .42})`;
+      ctx.lineWidth = widthPx * 1.8;
+      ctx.stroke();
+      ctx.strokeStyle = `hsla(${(hue + 65) % 360},100%,82%,${alpha})`;
+      ctx.lineWidth = Math.max(1, widthPx * .42);
+      ctx.stroke();
+    }
+
+    function drawStars(time) {
+      for (const star of stars) {
+        const y = (star.y + time * star.drift + cssHeight * 2) % cssHeight;
+        const pulse = .5 + .5 * Math.sin(time * star.speed + star.phase);
+        const slowBreath = .72 + .28 * Math.sin(time * .19 + star.phase * .37);
+        const alpha = star.alpha * (.38 + pulse * .62) * slowBreath;
+        const hue = (star.hue + time * (1.8 + star.speed * 1.4) + Math.sin(time * .11 + star.phase) * 22) % 360;
+        ctx.beginPath();
+        ctx.fillStyle = `hsla(${hue},95%,82%,${alpha})`;
+        ctx.arc(star.x, y, star.size * (.75 + pulse * .35), 0, Math.PI * 2);
+        ctx.fill();
+        if (star.size > 1.45 && pulse > .65) {
+          ctx.strokeStyle = `hsla(${(hue + 18) % 360},100%,88%,${alpha * .34})`;
+          ctx.lineWidth = .6;
+          ctx.beginPath();
+          ctx.moveTo(star.x - star.size * 4, y);
+          ctx.lineTo(star.x + star.size * 4, y);
+          ctx.moveTo(star.x, y - star.size * 4);
+          ctx.lineTo(star.x, y + star.size * 4);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function strokeOrganicPath(points, startWidth, endWidth, alpha) {
+      for (let i = 1; i < points.length; i++) {
+        const q = i / (points.length - 1);
+        const a = points[i - 1];
+        const b = points[i];
+        overlayCtx.lineWidth = startWidth + (endWidth - startWidth) * q;
+        overlayCtx.strokeStyle = `rgba(${Math.round(75 + q * 75)},${Math.round(175 + q * 62)},${Math.round(166 + q * 73)},${alpha})`;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(a.x, a.y);
+        overlayCtx.lineTo(b.x, b.y);
+        overlayCtx.stroke();
+      }
+    }
+
+    function drawBranchGrowth(branch, time) {
+      if (branch.growth <= .01) return;
+      const points = [];
+      const count = 24;
+      for (let i = 0; i <= count; i++) {
+        points.push(branchPoint(branch, i / count, time));
+      }
+      strokeOrganicPath(points, 11.5 * branch.growth, 3.5, .8);
+
+      if (branch.growth < .32) return;
+      for (let twig = 0; twig < 3; twig++) {
+        const q = .42 + twig * .20;
+        const root = branchPoint(branch, q, time);
+        const next = branchPoint(branch, Math.min(1, q + .025), time);
+        const angle = Math.atan2(next.y - root.y, next.x - root.x);
+        const side = twig % 2 ? -1 : 1;
+        const length = (16 + twig * 5) * branch.growth;
+        const tip = {
+          x: root.x + Math.cos(angle + side * 1.02) * length,
+          y: root.y + Math.sin(angle + side * 1.02) * length
+        };
+        strokeOrganicPath([root, {
+          x: (root.x + tip.x) / 2 + Math.sin(time + twig) * 2,
+          y: (root.y + tip.y) / 2
+        }, tip], 3.2, 1.0, .62);
+
+        if (branch.growth > .72 && twig > 0) {
+          const forkSide = twig % 2 ? 1 : -1;
+          const forkTip = {
+            x: tip.x + Math.cos(angle + forkSide * .72) * length * .58,
+            y: tip.y + Math.sin(angle + forkSide * .72) * length * .58
+          };
+          strokeOrganicPath([tip, {
+            x: (tip.x + forkTip.x) / 2,
+            y: (tip.y + forkTip.y) / 2 - 4
+          }, forkTip], 1.7, .6, .45);
+        }
+      }
+
+      if (branch.growth > .56) {
+        const tip = branchPoint(branch, 1, time);
+        const tendrilCount = branch.index % 3 === 0 ? 2 : 1;
+        for (let t = 0; t < tendrilCount; t++) {
+          const length = (30 + (branch.index % 4) * 8 + t * 13) * branch.growth;
+          const sway = Math.sin(time * (.62 + t * .11) + branch.index * 1.4 + t) * (8 + length * .12);
+          const hanging = [];
+          const steps = 18;
+          for (let i = 0; i <= steps; i++) {
+            const q = i / steps;
+            hanging.push({
+              x: tip.x + Math.sin(q * Math.PI * 1.25 + time * .35 + t) * sway * q,
+              y: tip.y + q * length + Math.sin(q * Math.PI * 2 + time * .42) * 3
+            });
+          }
+          strokeOrganicPath(hanging, 2.8 * branch.growth, .55, .48);
+        }
+      }
+    }
+
+    function easeMorph(value) {
+      const t = clamp(value, 0, 1);
+      return 1 - Math.pow(1 - t, 3);
+    }
+
+    function currentRibbonPoints(ribbon, time) {
+      const targets = ribbonTargetPoints(ribbon, time);
+      const morph = easeMorph(ribbon.progress);
+      return targets.map((target, i) => {
+        const source = ribbon.sourcePoints[Math.min(i, ribbon.sourcePoints.length - 1)];
+        const delayed = easeMorph(clamp(morph * 1.32 - i / ribbon.pointCount * .28, 0, 1));
+        return {
+          x: source.x + (target.x - source.x) * delayed,
+          y: source.y + (target.y - source.y) * delayed,
+          depth: target.depth
+        };
+      });
+    }
+
+    function drawLivingRibbon(ribbon, time) {
+      const points = currentRibbonPoints(ribbon, time);
+      const morph = easeMorph(ribbon.progress);
+      const breathe = 1 + Math.sin(time * (1.05 + ribbon.energy * .65) + ribbon.phase) * .16;
+      const lifeAlpha = 1 - (ribbon.absorbed || 0);
+      if (lifeAlpha <= .01) return;
+
+      const smokeLayers = [
+        { offset: -5.5, width: 3.9, alpha: .075, hue: -28 },
+        { offset:  4.0, width: 2.8, alpha: .10,  hue:  34 },
+        { offset: -1.5, width: 1.8, alpha: .15,  hue:  72 }
+      ];
+      for (const layer of smokeLayers) {
+        overlayCtx.beginPath();
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
+          const q = i / Math.max(1, points.length - 1);
+          const next = points[Math.min(points.length - 1, i + 1)];
+          const angle = Math.atan2(next.y - p.y, next.x - p.x) + Math.PI / 2;
+          const billow = layer.offset
+            + Math.sin(time * .55 + ribbon.phase + q * 9 + layer.hue) * (3 + ribbon.hold * 4);
+          const x = p.x + Math.cos(angle) * billow;
+          const y = p.y + Math.sin(angle) * billow;
+          if (i === 0) overlayCtx.moveTo(x, y);
+          else overlayCtx.lineTo(x, y);
+        }
+        const hue = (ribbon.hue + layer.hue + time * 10) % 360;
+        overlayCtx.strokeStyle = `hsla(${hue},100%,66%,${layer.alpha * (.45 + morph * .55) * lifeAlpha})`;
+        overlayCtx.shadowBlur = 22;
+        overlayCtx.shadowColor = `hsla(${hue},100%,58%,.38)`;
+        overlayCtx.lineWidth = ribbon.thickness * layer.width * breathe;
+        overlayCtx.stroke();
+      }
+
+      for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1];
+        const b = points[i];
+        const q = i / points.length;
+        const depth = b.depth ?? 0;
+        const hue = (ribbon.hue + i * ribbon.hueStride + time * (16 + ribbon.energy * 22)) % 360;
+        const light = 58 + (depth + 1) * 12;
+        const taper = 1 - q * .58;
+        overlayCtx.strokeStyle = `hsla(${hue},100%,${light}%,${(.78 + depth * .10) * lifeAlpha})`;
+        overlayCtx.shadowBlur = 14 + morph * 8;
+        overlayCtx.shadowColor = `hsla(${hue},100%,58%,.68)`;
+        overlayCtx.lineWidth = Math.max(1.35, ribbon.thickness * taper * breathe * (1 + depth * .20));
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(a.x, a.y);
+        overlayCtx.lineTo(b.x, b.y);
+        overlayCtx.stroke();
+      }
+
+      for (let i = 3; i < points.length - 1; i += 4) {
+        const p = points[i];
+        const next = points[i + 1];
+        const angle = Math.atan2(next.y - p.y, next.x - p.x);
+        const side = (i / 4) % 2 ? -1 : 1;
+        const flutter = Math.sin(time * (3 + ribbon.energy * 3) + i + ribbon.phase);
+        const frondLength = (5 + ribbon.hold * 8) * (morph * .7 + .3);
+        const spread = side * (.82 + flutter * .18);
+        const tipX = p.x + Math.cos(angle + spread) * frondLength;
+        const tipY = p.y + Math.sin(angle + spread) * frondLength;
+        const hue = (ribbon.hue + i * ribbon.hueStride + 70) % 360;
+        overlayCtx.strokeStyle = `hsla(${hue},100%,72%,${(.38 + morph * .42) * lifeAlpha})`;
+        overlayCtx.lineWidth = 1 + ribbon.hold * .7;
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(p.x, p.y);
+        overlayCtx.quadraticCurveTo(
+          (p.x + tipX) / 2 + Math.sin(time + i) * 2,
+          (p.y + tipY) / 2,
+          tipX,
+          tipY
+        );
+        overlayCtx.stroke();
+        overlayCtx.fillStyle = `hsla(${(hue + 28) % 360},100%,68%,${(.24 + morph * .42) * lifeAlpha})`;
+        overlayCtx.beginPath();
+        overlayCtx.ellipse(tipX, tipY, 2.2 + ribbon.hold * 1.6, 1.1, angle + spread, 0, Math.PI * 2);
+        overlayCtx.fill();
+      }
+
+      if (ribbon.glowUntil > elapsed && points.length) {
+        const glowProgress = clamp((ribbon.glowUntil - elapsed) / 3.2, 0, 1);
+        const center = points[Math.floor(points.length * .48)];
+        const pulse = .5 + .5 * Math.sin(time * 8 + ribbon.phase);
+        drawEnergyPulse(center, ribbon.hue + time * 24, 5 + pulse * 4, glowProgress * (.35 + pulse * .5));
+      }
+    }
+
+    function rootPath(root, index, fullness, time) {
+      const m = monument();
+      const points = [];
+      const steps = 26;
+      const growth = .28 + fullness * .72;
+      const length = root.length * growth;
+      const depth = root.depth * growth;
+      const start = trunkPoint(m.base - (index % 3) * 4, time);
+      for (let i = 0; i <= steps; i++) {
+        const q = i / steps;
+        const spread = Math.pow(q, .78);
+        const curl = Math.sin(q * Math.PI * (1.3 + index * .11) + index * 1.7 + time * .12)
+          * (5 + q * 13) * growth;
+        points.push({
+          x: start.x + root.side * length * spread + curl,
+          y: start.y + depth * Math.pow(q, 1.25)
+            + Math.sin(q * Math.PI * 2.2 + index) * 3.5 * q
+        });
+      }
+      return points;
+    }
+
+    function pointAlong(points, progress) {
+      const scaled = clamp(progress, 0, 1) * (points.length - 1);
+      const index = Math.min(points.length - 2, Math.floor(scaled));
+      const mix = scaled - index;
+      return {
+        x: points[index].x + (points[index + 1].x - points[index].x) * mix,
+        y: points[index].y + (points[index + 1].y - points[index].y) * mix
+      };
+    }
+
+    function drawEnergyPulse(point, hue, size, alpha) {
+      const glow = overlayCtx.createRadialGradient(point.x, point.y, 0, point.x, point.y, size * 3.8);
+      glow.addColorStop(0, `hsla(${hue},100%,94%,${alpha})`);
+      glow.addColorStop(.22, `hsla(${(hue + 40) % 360},100%,68%,${alpha * .72})`);
+      glow.addColorStop(1, `hsla(${hue},100%,50%,0)`);
+      overlayCtx.fillStyle = glow;
+      overlayCtx.beginPath();
+      overlayCtx.arc(point.x, point.y, size * 3.8, 0, Math.PI * 2);
+      overlayCtx.fill();
+    }
+
+    function drawMonument(time) {
+      const m = monument();
+      const fullness = treeGrowth;
+      const growth = .42 + fullness * .58;
+      const poleTop = m.base - m.height * growth;
+
+      overlayCtx.clearRect(0, 0, cssWidth, cssHeight);
+      overlayCtx.save();
+      overlayCtx.globalCompositeOperation = 'lighter';
+      overlayCtx.lineCap = 'round';
+      overlayCtx.lineJoin = 'round';
+      overlayCtx.shadowBlur = 14;
+      overlayCtx.shadowColor = 'rgba(90,235,210,.58)';
+
+      const trunk = [];
+      const trunkSteps = 38;
+      for (let i = 0; i <= trunkSteps; i++) {
+        const y = m.base - (m.base - poleTop) * i / trunkSteps;
+        trunk.push(trunkPoint(y, time));
+      }
+      strokeOrganicPath(trunk, 17 + fullness * 7, 5.0, .82);
+
+      const roots = [
+        { side: -1, length: 86, depth: 18 },
+        { side:  1, length: 96, depth: 24 },
+        { side: -1, length: 58, depth: 39 },
+        { side:  1, length: 64, depth: 44 },
+        { side: -1, length: 38, depth: 62 },
+        { side:  1, length: 43, depth: 67 }
+      ];
+      const rootPaths = roots.map((root, i) => rootPath(root, i, fullness, time));
+      rootPaths.forEach(points => strokeOrganicPath(points, 8.2, .85, .58));
+
+      for (const branch of branchDefinitions(fullness)) drawBranchGrowth(branch, time);
+      for (const ribbon of ribbons) drawLivingRibbon(ribbon, time);
+
+      const energy = .55 + .45 * Math.sin(time * .42);
+      rootPaths.forEach((points, i) => {
+        const inward = 1 - ((time * (.075 + i * .006) + i * .17) % 1);
+        drawEnergyPulse(pointAlong(points, inward), 155 + i * 22 + time * 8, 2.4 + energy * 1.5, .34 + energy * .34);
+      });
+      for (let i = 0; i < 3; i++) {
+        const rise = (time * .065 + i * .34) % 1;
+        const y = m.base - (m.base - poleTop) * rise;
+        drawEnergyPulse(trunkPoint(y, time), 165 + rise * 120 + time * 6, 3 + energy * 2.2, .38 + energy * .42);
+      }
+
+      overlayCtx.shadowBlur = 0;
+      overlayCtx.globalCompositeOperation = 'source-over';
+      overlayCtx.restore();
+    }
+
+    function drawCreatures(time) {
+      for (const c of creatures) {
+        const body = c.points.slice().reverse();
+        glowLine(body, (c.hue + time * 28) % 360, c.thickness, .92);
+        ctx.lineCap = 'round';
+        for (let i = 1; i < c.points.length; i++) {
+          const a = c.points[i - 1];
+          const b = c.points[i];
+          const hue = (c.hue + i * c.hueStride + time * (30 + c.energy * 34)) % 360;
+          ctx.strokeStyle = `hsla(${hue},100%,72%,.92)`;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = `hsla(${hue},100%,58%,.8)`;
+          const taper = 1 - i / c.points.length * .72;
+          ctx.lineWidth = Math.max(1.1, c.thickness * taper);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+        for (let i = 0; i < c.points.length; i += 3) {
+          const p = c.points[i];
+          const q = c.points[Math.min(i + 1, c.points.length - 1)];
+          const angle = Math.atan2(q.y - p.y, q.x - p.x) + Math.PI / 2;
+          const finBase = 3 + c.hold * 5 + (1 - c.energy) * 2;
+          const fin = finBase + Math.sin(time * (6 + c.energy * 7) + i * .7 + c.phase) * 2.8;
+          ctx.strokeStyle = `hsla(${(c.hue + i * 13 + time * 35) % 360},100%,72%,.72)`;
+          ctx.lineWidth = 1 + c.hold * .7;
+          ctx.beginPath();
+          ctx.moveTo(p.x - Math.cos(angle) * fin, p.y - Math.sin(angle) * fin);
+          ctx.lineTo(p.x + Math.cos(angle) * fin, p.y + Math.sin(angle) * fin);
+          ctx.stroke();
+        }
+        const head = c.points[0];
+        const headSize = 14 + c.thickness * 1.4;
+        const halo = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, headSize);
+        halo.addColorStop(0, `hsla(${c.hue},100%,92%,1)`);
+        halo.addColorStop(.2, `hsla(${(c.hue + 80) % 360},100%,62%,.9)`);
+        halo.addColorStop(1, `hsla(${c.hue},100%,50%,0)`);
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, headSize, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawGesture(time) {
+      if (!gesture) return;
+      const dx = gesture.x - gesture.startX;
+      const dy = gesture.y - gesture.startY;
+      const distance = Math.hypot(dx, dy);
+      const held = Math.min(1, (performance.now() - gesture.startTime) / 1400);
+      const hue = (ribbonSerial * 47 + time * 45) % 360;
+
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = `hsla(${hue},100%,66%,${.28 + held * .35})`;
+      ctx.shadowBlur = 13;
+      ctx.shadowColor = `hsla(${(hue + 65) % 360},100%,60%,.8)`;
+      ctx.lineWidth = 2 + held * 4;
+      ctx.beginPath();
+      ctx.moveTo(gesture.startX, gesture.startY);
+      ctx.quadraticCurveTo(
+        (gesture.startX + gesture.x) / 2 - dy * .08,
+        (gesture.startY + gesture.y) / 2 + dx * .08,
+        gesture.x,
+        gesture.y
+      );
+      ctx.stroke();
+
+      const pulse = 8 + held * 13 + Math.sin(time * 9) * 2;
+      ctx.fillStyle = `hsla(${(hue + distance * .25) % 360},100%,72%,.55)`;
+      ctx.beginPath();
+      ctx.arc(gesture.x, gesture.y, pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.fillStyle = `hsla(${p.hue},100%,70%,${Math.max(0, p.life)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * Math.max(.15, p.life), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawScene(time) {
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      ctx.globalCompositeOperation = 'lighter';
+      drawStars(time);
+      drawGesture(time);
+      drawCreatures(time);
+      drawParticles();
+      ctx.globalCompositeOperation = 'source-over';
+      drawMonument(time);
+    }
+
+    function bindQuad(p) {
+      const location = gl.getAttribLocation(p, 'a_position');
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.enableVertexAttribArray(location);
+      gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+    }
+
+    function bindTexture(p, name, unit, t) {
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.uniform1i(gl.getUniformLocation(p, name), unit);
+    }
+
+    function renderFeedback(time) {
+      gl.bindTexture(gl.TEXTURE_2D, sceneTexture);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, scene);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+
+      const back = 1 - front;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffers[back]);
+      gl.viewport(0, 0, width, height);
+      gl.useProgram(feedbackProgram);
+      bindQuad(feedbackProgram);
+      bindTexture(feedbackProgram, 'u_previous', 0, feedbackTextures[front]);
+      bindTexture(feedbackProgram, 'u_scene', 1, sceneTexture);
+      gl.uniform2f(gl.getUniformLocation(feedbackProgram, 'u_resolution'), width, height);
+      gl.uniform1f(gl.getUniformLocation(feedbackProgram, 'u_time'), time);
+      gl.uniform1f(gl.getUniformLocation(feedbackProgram, 'u_decay'), SETTINGS.feedbackDecay);
+      gl.uniform1f(gl.getUniformLocation(feedbackProgram, 'u_zoom'), SETTINGS.feedbackZoom);
+      gl.uniform1f(gl.getUniformLocation(feedbackProgram, 'u_rotation'), SETTINGS.feedbackRotation);
+      gl.uniform1f(gl.getUniformLocation(feedbackProgram, 'u_warp'), SETTINGS.feedbackWarp);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(copyProgram);
+      bindQuad(copyProgram);
+      bindTexture(copyProgram, 'u_texture', 0, feedbackTextures[back]);
+      gl.uniform2f(gl.getUniformLocation(copyProgram, 'u_resolution'), width, height);
+      gl.uniform1f(gl.getUniformLocation(copyProgram, 'u_time'), time);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      front = back;
+    }
+
+    function frame(now) {
+      const dt = Math.min(.034, Math.max(.001, (now - lastTime) / 1000));
+      lastTime = now;
+      elapsed += dt;
+      maybeAmbientBirth(now);
+      updateCreatures(dt);
+      updateRibbons(dt);
+      updateParticles(dt);
+      drawScene(elapsed);
+      renderFeedback(elapsed);
+      requestAnimationFrame(frame);
+    }
+
+    function clearReplayTimers() {
+      replayTimers.forEach(clearTimeout);
+      replayTimers = [];
+    }
+
+    function resetCreation() {
+      creatures.length = 0;
+      ribbons.length = 0;
+      particles.length = 0;
+      treeGrowth = 0;
+      ribbonSerial = 0;
+      elapsed = 0;
+      front = 0;
+      feedbackTextures.forEach(allocate);
+      overlayCtx.clearRect(0, 0, cssWidth, cssHeight);
+    }
+
+    function savedCreation() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function saveCreation() {
+      if (!gestureHistory.length) return;
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(gestureHistory));
+        showStatus('Saved locally');
+      } catch {
+        showStatus('Browser storage unavailable');
+      }
+      updateControls();
+    }
+
+    function replayCreation() {
+      const events = savedCreation() || gestureHistory.slice();
+      if (!events.length || replaying) return;
+      clearReplayTimers();
+      resetCreation();
+      replaying = true;
+      veil.classList.add('hidden');
+      const speed = Number(speedSelect.value) || 1;
+      const diagonal = Math.hypot(cssWidth, cssHeight);
+      for (const event of events) {
+        replayTimers.push(setTimeout(() => {
+          spawnCreature(event.x * cssWidth, event.y * cssHeight, {
+            ...event.options,
+            distance: event.options.distance * diagonal
+          });
+        }, event.at / speed));
+      }
+      const duration = Math.max(...events.map(event => event.at)) / speed;
+      replayTimers.push(setTimeout(() => {
+        replaying = false;
+        recordStartedAt = performance.now();
+        lastUserActivity = performance.now();
+        showStatus('Replay complete');
+        updateControls();
+      }, duration + 700));
+      showStatus(`${speed}× replay`);
+      updateControls();
+    }
+
+    function downloadPng() {
+      const capture = document.createElement('canvas');
+      capture.width = width;
+      capture.height = height;
+      const captureCtx = capture.getContext('2d');
+      captureCtx.drawImage(display, 0, 0, width, height);
+      captureCtx.drawImage(overlay, 0, 0, width, height);
+      capture.toBlob(blob => {
+        if (!blob) {
+          showStatus('Capture failed');
+          return;
+        }
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `colour-the-solstice-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+        showStatus('PNG captured');
+      }, 'image/png');
+    }
+
+    function maybeAmbientBirth(now) {
+      if (replaying || !touched || now - lastUserActivity < 13000) return;
+      if (now - lastAmbientBirth < 9000 + (ribbonSerial % 5) * 1700) return;
+      const edge = Math.floor(Math.random() * 4);
+      const margin = 22;
+      let x;
+      let y;
+      if (edge === 0) { x = margin; y = random(cssHeight * .16, cssHeight * .82); }
+      if (edge === 1) { x = cssWidth - margin; y = random(cssHeight * .16, cssHeight * .82); }
+      if (edge === 2) { x = random(cssWidth * .12, cssWidth * .88); y = margin; }
+      if (edge === 3) { x = random(cssWidth * .12, cssWidth * .88); y = cssHeight - margin; }
+      const m = monument();
+      spawnCreature(x, y, {
+        automatic: true,
+        direction: Math.atan2(m.top + m.height * .5 - y, m.x - x) + random(-.45, .45),
+        energy: random(.16, .42),
+        hold: random(.08, .32),
+        distance: random(15, 90),
+        seed: Math.floor(Math.random() * 0xffffffff)
+      });
+      lastAmbientBirth = now;
+    }
+
+    function pointerPosition(event) {
+      const rect = display.getBoundingClientRect();
+      return {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top
+      };
+    }
+
+    display.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      if (gesture || replaying) return;
+      lastUserActivity = performance.now();
+      if (!touched) {
+        touched = true;
+        veil.classList.add('hidden');
+      }
+      const p = pointerPosition(event);
+      gesture = {
+        pointerId: event.pointerId,
+        startX: p.x,
+        startY: p.y,
+        x: p.x,
+        y: p.y,
+        startTime: performance.now()
+      };
+      display.setPointerCapture(event.pointerId);
+    });
+
+    display.addEventListener('pointermove', event => {
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      event.preventDefault();
+      lastUserActivity = performance.now();
+      const p = pointerPosition(event);
+      gesture.x = p.x;
+      gesture.y = p.y;
+    });
+
+    function finishGesture(event, spawn) {
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      event.preventDefault();
+      const finished = gesture;
+      gesture = null;
+      if (display.hasPointerCapture(event.pointerId)) {
+        display.releasePointerCapture(event.pointerId);
+      }
+      if (!spawn) return;
+
+      const p = pointerPosition(event);
+      const dx = p.x - finished.startX;
+      const dy = p.y - finished.startY;
+      const distance = Math.hypot(dx, dy);
+      const duration = Math.max(.06, (performance.now() - finished.startTime) / 1000);
+      const strokeSpeed = distance / duration;
+      const isDrag = distance >= 10;
+      const m = monument();
+      const direction = isDrag
+        ? Math.atan2(dy, dx)
+        : Math.atan2(m.top + m.height * .47 - p.y, m.x - p.x);
+      const toTargetX = m.x - p.x;
+      const toTargetY = m.top + m.height * .47 - p.y;
+      const cross = dx * toTargetY - dy * toTargetX;
+
+      const options = {
+        direction,
+        distance,
+        hold: clamp((duration - .08) / 1.55, 0, 1),
+        energy: isDrag ? clamp((strokeSpeed - 35) / 720, .08, 1) : .32,
+        orbit: isDrag && Math.abs(cross) > 1 ? Math.sign(cross) : (dx < 0 ? -1 : 1),
+        seed: Math.floor(Math.random() * 0xffffffff)
+      };
+      spawnCreature(p.x, p.y, options);
+      if (!replaying) {
+        if (gestureHistory.length === 0) recordStartedAt = finished.startTime;
+        gestureHistory.push({
+          at: performance.now() - recordStartedAt,
+          x: p.x / cssWidth,
+          y: p.y / cssHeight,
+          options: {
+            ...options,
+            distance: options.distance / Math.hypot(cssWidth, cssHeight)
+          }
+        });
+        updateControls();
+      }
+    }
+
+    display.addEventListener('pointerup', event => {
+      finishGesture(event, true);
+    });
+
+    display.addEventListener('pointercancel', event => {
+      finishGesture(event, false);
+    });
+
+    saveButton.addEventListener('click', saveCreation);
+    replayButton.addEventListener('click', replayCreation);
+    pngButton.addEventListener('click', downloadPng);
+
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', () => {
+      lastTime = performance.now();
+    });
+
+    resize();
+    requestAnimationFrame(frame);
+
+    // A quiet initial visitor demonstrates the interaction without becoming a start screen.
+    setTimeout(() => {
+      if (!touched) {
+        spawnCreature(cssWidth * .12, cssHeight * .68, {
+          automatic: true,
+          direction: -.18,
+          energy: .34,
+          hold: .25
+        });
+      }
+    }, 1100);
+  })();
+  </script>
+</body>
+</html>

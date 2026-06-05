@@ -1,0 +1,116 @@
+# Colour The Solstice: Development Log
+
+## Origin
+
+The project began as an entry for the DEV June Solstice Game Jam. Winning was
+not the primary goal; the motivation was to create something visually pleasing
+and personally interesting.
+
+The initial references were:
+
+- *flOw* on PlayStation 3: low-control aquatic movement, growth, and trance.
+- Psychedelic Amiga-era games and Jeff Minter's visual style.
+- MilkDrop/Winamp visualisations: recursive colour, trails, and feedback.
+- *Townscaper*: limited input that reliably produces attractive results.
+- Swedish midsummer traditions and the June solstice.
+
+The working idea was a scoreless construction toy. Touches release colourful
+whirling beings into a star field. They travel organically toward a central
+structure and become part of an accumulating colourscape. There is no start,
+failure, score, completion state, or correct way to play.
+
+The title became **Colour The Solstice**.
+
+## Technical Direction
+
+The first plan considered Three.js. The project is not opposed to libraries:
+use one when it provides a clearly better specialised capability, but implement
+ordinary browser logic directly when the result is equally good.
+
+Because the first spike needed to work by double-clicking one file, it used
+native WebGL and Canvas 2D inside a self-contained `index.html`:
+
+- WebGL ping-pong framebuffers create MilkDrop-like feedback.
+- A fragment shader warps, fades, rotates, and hue-shifts previous frames.
+- Canvas 2D draws stars, creatures, particles, and crisp foreground geometry.
+- No server, build step, or external dependency is required.
+
+An early render fed the static centrepiece back through the shader. It bloomed
+into a large grey capsule. The fix was to separate the structure onto a crisp
+foreground canvas while keeping stars, creatures, and particles in the
+feedback loop.
+
+## Interaction Evolution
+
+The first version spawned a fixed creature on every click. Gesture creation was
+then added:
+
+- Tap creates a balanced default being.
+- Hold duration and stroke distance affect length and thickness.
+- Drag direction determines launch direction and spiral handedness.
+- Drag speed affects energy, swimming speed, wiggle, and colour cycling.
+
+A glowing curve previews the gesture. The system still interprets the input;
+the player influences rather than places.
+
+## From Maypole to Yggdrasil
+
+The original centrepiece was a rainbow Swedish maypole. In practice, the
+horizontal branch made it read too strongly as a cross. The concept changed to
+**Yggdrasil**, which better supports organic growth and the cosmic setting.
+
+The structure became:
+
+- A slowly swaying, tapering trunk.
+- Asymmetric upward-curving branches and forks.
+- Growing roots.
+- Hanging tendrils from mature branch tips.
+- A slow high-brightness breathing cycle.
+
+Tree growth was initially tied directly to the number of attachments, causing
+branches to jump into existence. Visual growth is now decoupled from count:
+each arrival raises a target, and the tree eases toward it over time.
+
+## Living Attachments
+
+The first attachment replaced a moving creature immediately with a clean
+mathematical helix. This was abrupt, and the result was less alive than the
+swimmer.
+
+The replacement system preserves each body:
+
+- Segments morph progressively from their swimming pose onto trunk or branch.
+- Colours and body proportions survive attachment.
+- Original gesture length continues to influence the settled creature's reach.
+- Settled beings continue breathing, waving, and growing small fronds.
+- Multiple translucent displaced layers create an aurora/smoke quality.
+- Occupancy-aware placement and slow outward migration reduce branch clumping.
+- Incoming creatures stimulate tree growth, while attachment is restricted to
+  limbs already large enough to catch them.
+
+The intended result is a living ecosystem on Yggdrasil, not static decoration.
+
+## Preservation and Ecosystem
+
+The later development pass added:
+
+- Save and replay of gesture sequences at selectable speeds.
+- PNG capture for creations the player wants to keep.
+- A slowly colour-shifting rainbow nebula behind the stars.
+- Stars that cycle subtly in hue and brightness.
+- Organic roots that continue growing and feed visible light upward.
+- Restrained spontaneous creature births after inactivity.
+- Older attached beings being absorbed by newer ones, causing a temporary glow
+  and preventing unlimited visual clutter.
+
+Browser-native MP4 export was considered, but PNG and replay are the first
+priority because video encoding support and output formats vary by browser.
+
+## Design Principles
+
+- Creation matters more than competition.
+- Every interaction should have a pleasing consequence.
+- Control should remain limited but expressive.
+- The world should remain alive when untouched, without taking authorship away.
+- Technical complexity must produce visible beauty or better interaction.
+- Preserve successful accidents, especially Yggdrasil's slow luminous cycle.
