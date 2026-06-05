@@ -408,6 +408,13 @@
       return { x, base, top, height: base - top };
     }
 
+    // The trunk is only drawn up to this height; attachments and creature aims
+    // must stay within it so nothing settles on the invisible future crown.
+    function visibleTrunkTop() {
+      const m = monument();
+      return m.base - m.height * (.42 + treeGrowth * .58);
+    }
+
     function trunkPoint(y, time = 0) {
       const m = monument();
       const q = clamp((m.base - y) / m.height, 0, 1);
@@ -530,7 +537,7 @@
           turns: randBetween(1.8, 3.1) + energy * 2.3,
           width: randBetween(12, 20) + hold * 10,
           sway: randBetween(.65, 1.05) + (1 - energy) * .45,
-          settleTime: randBetween(1.65, 2.35)
+          settleTime: randBetween(2.4, 3.4)
         }
       });
       ribbonSerial++;
@@ -572,25 +579,26 @@
           const occupiedCenter = occupiedStart + occupant.hostSpan * .5;
           score += overlap * 9 + Math.max(0, .16 - Math.abs(center - occupiedCenter));
         }
-        // Branch beings seek the brighter tips; trunk beings gently seek the crown.
-        score += hostIndex >= 0 ? -center * .24 : center * .12;
+        // Branch beings drift gently toward the brighter tips; trunk beings toward the crown.
+        score += hostIndex >= 0 ? -center * .12 : center * .08;
         score += Math.abs(Math.sin(phase + i * 2.17)) * .008;
         if (score < bestScore) {
           bestScore = score;
           bestStart = start;
         }
       }
-      return { start: bestStart, score: bestScore + occupants.length * .08 };
+      return { start: bestStart, score: bestScore + occupants.length * .15 };
     }
 
-    function chooseAttachmentPlacement(branches, branchSpan, trunkSpan, phase) {
+    function chooseAttachmentPlacement(branches, branchSpan, trunkSpan, phase, trunkAffinity = 0) {
       const hosts = [-1, ...branches.map(branch => branch.index)];
       let best = null;
       for (const hostIndex of hosts) {
         const span = hostIndex >= 0 ? branchSpan : trunkSpan;
         const opening = openAttachmentStart(hostIndex, span, phase);
         const branch = hostIndex >= 0 ? branches.find(candidate => candidate.index === hostIndex) : null;
-        const score = opening.score - (branch ? branch.growth * .14 : .015);
+        // Long gestures carry enough body to embrace the trunk itself.
+        const score = opening.score - (branch ? branch.growth * .14 : .02 + trunkAffinity * .3);
         if (!best || score < best.score) {
           best = { hostIndex, span, start: opening.start, score };
         }
@@ -606,7 +614,7 @@
       const lengthFactor = clamp((creature.bodyLength - 38) / 190, 0, 1);
       const trunkSpan = clamp(creature.bodyLength * .72 / m.height, .07, .43);
       const branchSpan = .18 + Math.pow(lengthFactor, .72) * .58;
-      const placement = chooseAttachmentPlacement(branches, branchSpan, trunkSpan, creature.phase);
+      const placement = chooseAttachmentPlacement(branches, branchSpan, trunkSpan, creature.phase, lengthFactor);
       const newRibbon = {
         hue: creature.hue,
         y: creature.targetY,
@@ -624,6 +632,21 @@
         index,
         sourcePoints: creature.points.map(point => ({ x: point.x, y: point.y })),
         pointCount: creature.points.length,
+        // The settled helix is sampled more densely than the swimming body so
+        // its loops read as smooth smoke rather than a segmented zigzag.
+        renderCount: Math.min(96, Math.max(
+          creature.points.length,
+          Math.round(18 + creature.attachment.turns * 22)
+        )),
+        // The body keeps swimming while it melts onto the tree.
+        swim: {
+          vx: creature.vx,
+          vy: creature.vy,
+          wiggleRate: creature.wiggleRate,
+          wiggleStrength: creature.wiggleStrength,
+          spacing: creature.spacing,
+          phase: creature.phase
+        },
         progress: 0,
         settleTime: creature.attachment.settleTime,
         branchIndex: placement.hostIndex,
@@ -671,7 +694,7 @@
         if (ribbon.absorbTarget) continue;
         const maxStart = Math.max(.04, .96 - ribbon.hostSpan);
         const center = ribbon.targetStart + ribbon.hostSpan * .5;
-        let movement = ribbon.branchIndex >= 0 ? .0055 : -.0025;
+        let movement = ribbon.branchIndex >= 0 ? .0035 : -.0025;
         for (const other of ribbons) {
           if (other === ribbon || other.branchIndex !== ribbon.branchIndex || other.absorbTarget) continue;
           const otherCenter = other.targetStart + other.hostSpan * .5;
@@ -686,6 +709,39 @@
         ribbon.targetStart = clamp(ribbon.targetStart + movement * dt, .04, maxStart);
         ribbon.layoutStart += (ribbon.targetStart - ribbon.layoutStart) * Math.min(1, dt * .16);
       }
+      // While a body is still morphing it keeps swimming toward its landing
+      // point so the tail flows onto the tree instead of freezing mid-water.
+      const swimBranches = branchDefinitions(treeGrowth);
+      for (const ribbon of ribbons) {
+        if (!ribbon.swim || ribbon.progress >= 1) continue;
+        const fade = 1 - easeMorph(ribbon.progress);
+        if (fade <= .02) continue;
+        const s = ribbon.swim;
+        const branch = ribbon.branchIndex >= 0 ? swimBranches[ribbon.branchIndex] : null;
+        const landing = ribbonHost(ribbon, branch, ribbon.layoutStart, elapsed).host;
+        const head = ribbon.sourcePoints[0];
+        const dx = landing.x - head.x;
+        const dy = landing.y - head.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const wiggle = Math.sin(elapsed * s.wiggleRate + s.phase) * s.wiggleStrength * fade;
+        s.vx += ((dx / dist) * 130 - (dy / dist) * wiggle) * dt;
+        s.vy += ((dy / dist) * 130 + (dx / dist) * wiggle) * dt;
+        const damp = Math.pow(.18, dt);
+        s.vx *= damp;
+        s.vy *= damp;
+        head.x += s.vx * dt * fade;
+        head.y += s.vy * dt * fade;
+        for (let i = 1; i < ribbon.sourcePoints.length; i++) {
+          const prev = ribbon.sourcePoints[i - 1];
+          const p = ribbon.sourcePoints[i];
+          const sx = prev.x - p.x;
+          const sy = prev.y - p.y;
+          const sd = Math.hypot(sx, sy) || 1;
+          const spacing = s.spacing * (1 - i / ribbon.sourcePoints.length * .28) * (.4 + fade * .6);
+          p.x = prev.x - sx / sd * spacing;
+          p.y = prev.y - sy / sd * spacing;
+        }
+      }
       const m = monument();
       const incomingGrowth = creatures.reduce((sum, creature) => {
         const head = creature.points[0];
@@ -699,33 +755,36 @@
       treeGrowth += Math.sign(distance) * Math.min(Math.abs(distance), maxStep);
     }
 
+    function ribbonHost(ribbon, branch, along, time) {
+      if (branch && branch.growth > .05) {
+        const host = branchPoint(branch, along, time);
+        const next = branchPoint(branch, Math.min(1, along + .012), time);
+        return { host, tangent: { x: next.x - host.x, y: next.y - host.y } };
+      }
+      // Trunk positions map onto the part of the trunk that has actually
+      // grown, never the empty sky above a young tree.
+      const m = monument();
+      const top = visibleTrunkTop();
+      const y = top + along * (m.base - top);
+      const host = trunkPoint(y, time);
+      const next = trunkPoint(y + 2, time);
+      return { host, tangent: { x: next.x - host.x, y: next.y - host.y } };
+    }
+
     function ribbonTargetPoints(ribbon, time) {
       const points = [];
       const branches = branchDefinitions(treeGrowth);
       const branch = ribbon.branchIndex >= 0 ? branches[ribbon.branchIndex] : null;
+      const count = ribbon.renderCount || ribbon.pointCount;
 
-      for (let i = 0; i < ribbon.pointCount; i++) {
-        const q = i / Math.max(1, ribbon.pointCount - 1);
+      for (let i = 0; i < count; i++) {
+        const q = i / Math.max(1, count - 1);
         const angle = q * Math.PI * 2 * ribbon.turns
           + ribbon.phase
           + time * (.22 + ribbon.energy * .22) * ribbon.sway;
         const pulse = 1 + Math.sin(time * (1.05 + ribbon.energy * .7) + ribbon.phase + q * 4.5) * .18;
         const radius = ribbon.width * (.72 + Math.sin(q * Math.PI) * .28) * pulse;
-        let host;
-        let tangent;
-
-        if (branch && branch.growth > .05) {
-          const along = ribbon.layoutStart + q * ribbon.hostSpan;
-          host = branchPoint(branch, along, time);
-          const next = branchPoint(branch, Math.min(1, along + .012), time);
-          tangent = { x: next.x - host.x, y: next.y - host.y };
-        } else {
-          const along = ribbon.layoutStart + q * ribbon.hostSpan;
-          const y = monument().top + along * monument().height;
-          host = trunkPoint(y, time);
-          const next = trunkPoint(y + 2, time);
-          tangent = { x: next.x - host.x, y: next.y - host.y };
-        }
+        const { host, tangent } = ribbonHost(ribbon, branch, ribbon.layoutStart + q * ribbon.hostSpan, time);
 
         const length = Math.hypot(tangent.x, tangent.y) || 1;
         const normal = { x: -tangent.y / length, y: tangent.x / length };
@@ -741,12 +800,14 @@
 
     function updateCreatures(dt) {
       const m = monument();
+      // Creatures aim no higher than the trunk has actually grown.
+      const minAimY = visibleTrunkTop() + 14;
       for (let ci = creatures.length - 1; ci >= 0; ci--) {
         const c = creatures[ci];
         c.age += dt;
         const head = c.points[0];
         const dx = m.x - head.x;
-        const dy = c.targetY - head.y;
+        const dy = Math.max(c.targetY, minAimY) - head.y;
         const dist = Math.hypot(dx, dy) || 1;
         const nx = dx / dist;
         const ny = dy / dist;
@@ -915,19 +976,28 @@
     }
 
     function easeMorph(value) {
+      // Smoothstep: the morph starts and ends softly instead of snapping.
       const t = clamp(value, 0, 1);
-      return 1 - Math.pow(1 - t, 3);
+      return t * t * (3 - 2 * t);
     }
 
     function currentRibbonPoints(ribbon, time) {
       const targets = ribbonTargetPoints(ribbon, time);
       const morph = easeMorph(ribbon.progress);
+      const lastSource = ribbon.sourcePoints.length - 1;
       return targets.map((target, i) => {
-        const source = ribbon.sourcePoints[Math.min(i, ribbon.sourcePoints.length - 1)];
-        const delayed = easeMorph(clamp(morph * 1.32 - i / ribbon.pointCount * .28, 0, 1));
+        const q = i / Math.max(1, targets.length - 1);
+        const scaled = q * lastSource;
+        const low = Math.floor(scaled);
+        const high = Math.min(lastSource, low + 1);
+        const mix = scaled - low;
+        const sx = ribbon.sourcePoints[low].x + (ribbon.sourcePoints[high].x - ribbon.sourcePoints[low].x) * mix;
+        const sy = ribbon.sourcePoints[low].y + (ribbon.sourcePoints[high].y - ribbon.sourcePoints[low].y) * mix;
+        // Head settles first; the tail follows in a long flowing wave.
+        const delayed = easeMorph(clamp(morph * 1.5 - q * .5, 0, 1));
         return {
-          x: source.x + (target.x - source.x) * delayed,
-          y: source.y + (target.y - source.y) * delayed,
+          x: sx + (target.x - sx) * delayed,
+          y: sy + (target.y - sy) * delayed,
           depth: target.depth
         };
       });
@@ -941,9 +1011,10 @@
       if (lifeAlpha <= .01) return;
 
       const smokeLayers = [
-        { offset: -5.5, width: 3.9, alpha: .075, hue: -28 },
-        { offset:  4.0, width: 2.8, alpha: .10,  hue:  34 },
-        { offset: -1.5, width: 1.8, alpha: .15,  hue:  72 }
+        { offset: -7.5, width: 5.2, alpha: .055, hue: -28 },
+        { offset:  5.5, width: 3.8, alpha: .08,  hue:  34 },
+        { offset: -2.0, width: 2.6, alpha: .115, hue:  72 },
+        { offset:  1.5, width: 1.6, alpha: .15,  hue: 110 }
       ];
       for (const layer of smokeLayers) {
         overlayCtx.beginPath();
@@ -953,7 +1024,7 @@
           const next = points[Math.min(points.length - 1, i + 1)];
           const angle = Math.atan2(next.y - p.y, next.x - p.x) + Math.PI / 2;
           const billow = layer.offset
-            + Math.sin(time * .55 + ribbon.phase + q * 9 + layer.hue) * (3 + ribbon.hold * 4);
+            + Math.sin(time * .55 + ribbon.phase + q * 9 + layer.hue) * (4.5 + ribbon.hold * 6);
           const x = p.x + Math.cos(angle) * billow;
           const y = p.y + Math.sin(angle) * billow;
           if (i === 0) overlayCtx.moveTo(x, y);
@@ -961,7 +1032,7 @@
         }
         const hue = (ribbon.hue + layer.hue + time * 10) % 360;
         overlayCtx.strokeStyle = `hsla(${hue},100%,66%,${layer.alpha * (.45 + morph * .55) * lifeAlpha})`;
-        overlayCtx.shadowBlur = 22;
+        overlayCtx.shadowBlur = 28;
         overlayCtx.shadowColor = `hsla(${hue},100%,58%,.38)`;
         overlayCtx.lineWidth = ribbon.thickness * layer.width * breathe;
         overlayCtx.stroke();
@@ -972,10 +1043,10 @@
         const b = points[i];
         const q = i / points.length;
         const depth = b.depth ?? 0;
-        const hue = (ribbon.hue + i * ribbon.hueStride + time * (16 + ribbon.energy * 22)) % 360;
+        const hue = (ribbon.hue + q * ribbon.pointCount * ribbon.hueStride + time * (16 + ribbon.energy * 22)) % 360;
         const light = 58 + (depth + 1) * 12;
         const taper = 1 - q * .58;
-        overlayCtx.strokeStyle = `hsla(${hue},100%,${light}%,${(.78 + depth * .10) * lifeAlpha})`;
+        overlayCtx.strokeStyle = `hsla(${hue},100%,${light}%,${(.66 + depth * .12) * lifeAlpha})`;
         overlayCtx.shadowBlur = 14 + morph * 8;
         overlayCtx.shadowColor = `hsla(${hue},100%,58%,.68)`;
         overlayCtx.lineWidth = Math.max(1.35, ribbon.thickness * taper * breathe * (1 + depth * .20));
@@ -985,17 +1056,18 @@
         overlayCtx.stroke();
       }
 
-      for (let i = 3; i < points.length - 1; i += 4) {
+      const frondStep = Math.max(3, Math.round(points.length / 13));
+      for (let i = frondStep; i < points.length - 1; i += frondStep) {
         const p = points[i];
         const next = points[i + 1];
         const angle = Math.atan2(next.y - p.y, next.x - p.x);
-        const side = (i / 4) % 2 ? -1 : 1;
+        const side = Math.round(i / frondStep) % 2 ? -1 : 1;
         const flutter = Math.sin(time * (3 + ribbon.energy * 3) + i + ribbon.phase);
         const frondLength = (5 + ribbon.hold * 8) * (morph * .7 + .3);
         const spread = side * (.82 + flutter * .18);
         const tipX = p.x + Math.cos(angle + spread) * frondLength;
         const tipY = p.y + Math.sin(angle + spread) * frondLength;
-        const hue = (ribbon.hue + i * ribbon.hueStride + 70) % 360;
+        const hue = (ribbon.hue + (i / points.length) * ribbon.pointCount * ribbon.hueStride + 70) % 360;
         overlayCtx.strokeStyle = `hsla(${hue},100%,72%,${(.38 + morph * .42) * lifeAlpha})`;
         overlayCtx.lineWidth = 1 + ribbon.hold * .7;
         overlayCtx.beginPath();
@@ -1011,6 +1083,16 @@
         overlayCtx.beginPath();
         overlayCtx.ellipse(tipX, tipY, 2.2 + ribbon.hold * 1.6, 1.1, angle + spread, 0, Math.PI * 2);
         overlayCtx.fill();
+      }
+
+      // A fading head halo carries the swimmer's glow into its settled life.
+      if (morph < 1 && points.length) {
+        drawEnergyPulse(
+          points[0],
+          (ribbon.hue + time * 30) % 360,
+          4 + ribbon.thickness,
+          (1 - morph) * .7 * lifeAlpha
+        );
       }
 
       if (ribbon.glowUntil > elapsed && points.length) {
@@ -1067,8 +1149,7 @@
     function drawMonument(time) {
       const m = monument();
       const fullness = treeGrowth;
-      const growth = .42 + fullness * .58;
-      const poleTop = m.base - m.height * growth;
+      const poleTop = visibleTrunkTop();
 
       overlayCtx.clearRect(0, 0, cssWidth, cssHeight);
       overlayCtx.save();

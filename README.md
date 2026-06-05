@@ -25,7 +25,8 @@ Then open `http://localhost:8000`.
 ## Interaction
 
 - **Tap:** create a balanced default being.
-- **Hold or make a long stroke:** create a longer, thicker being.
+- **Hold or make a long stroke:** create a longer, thicker being that prefers
+  wrapping the trunk itself.
 - **Stroke direction:** influence launch direction and spiral handedness.
 - **Stroke speed:** influence energy, swimming speed, movement, and colour.
 
@@ -89,6 +90,10 @@ preferred when it reaches equal quality with less machinery.
 - Let the world remain alive when untouched without taking authorship away.
 - Preserve successful visual accidents.
 - Add technical complexity only when it improves beauty or interaction.
+
+## License
+
+[MIT](LICENSE).
 
 ## Project Notes
 

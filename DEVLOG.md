@@ -106,6 +106,46 @@ The later development pass added:
 Browser-native MP4 export was considered, but PNG and replay are the first
 priority because video encoding support and output formats vary by browser.
 
+## Refining Attachment and Flow
+
+Development tooling switched from codex-cli to Claude Code running Opus 4.8 at
+this point. A playtesting pass surfaced four observations: beings still
+settled in empty space above the tree, the loops around Yggdrasil read as
+edgy rather than smoky, the moment of attachment was too abrupt, and the
+branches clumped while the trunk stayed bare — with the suggestion that long
+draws could aim for the trunk.
+
+A persistent bug had beings settling in empty space above the young tree. The
+cause was a mismatch between simulation and drawing: attachment positions were
+mapped onto the monument's full eventual height, while the trunk was only drawn
+up to its current growth. Trunk placements, and the heights creatures aim for,
+are now clamped to the visibly grown trunk, so early arrivals wrap the actual
+tree. A pleasant side effect is that trunk-attached vines ride upward as the
+tree grows beneath them.
+
+The settled loops also looked segmented rather than smoky, because the helix
+was sampled at the swimming body's point count — too coarse for several turns.
+The helix is now sampled independently and more densely, the swimming pose is
+interpolated between its original points, and an extra wider smoke layer with
+deeper billow softens the result.
+
+The moment of attachment was still abrupt. Three changes let bodies flow onto
+Yggdrasil: the morph easing now starts and ends softly instead of snapping, the
+settle takes about a second longer, and — most importantly — the body keeps
+swimming toward its landing point while it melts onto the tree, so the tail
+glides in instead of freezing mid-water. A fading head halo carries the
+swimmer's glow into its settled life.
+
+Placement was rebalanced at the same time. Branches clumped at their tips while
+the trunk stayed bare, so tip-seeking and outward migration were softened, the
+crowding penalty strengthened, and long gestures now carry enough body to
+prefer embracing the trunk itself.
+
+Deployment note: GitHub Pages ran the repository through Jekyll, which failed
+on the literal Liquid embed syntax DEV's jam FAQ quotes as documentation. A
+`.nojekyll` file now disables Jekyll entirely; the game is static files and
+needs no build.
+
 ## Design Principles
 
 - Creation matters more than competition.
