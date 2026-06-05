@@ -50,6 +50,8 @@ interprets every arrival and finds a place for it.
 - A diffuse background nebula that moves through rainbow colours.
 - Restrained spontaneous births after a period of inactivity.
 - Older attached beings can be absorbed by newer ones, transferring a brief glow.
+- Crowded clusters resolve themselves: a later arrival eats the eldest being,
+  which flashes, drifts down, and is consumed by the roots in a surge of light.
 
 ## Save, Replay, and Export
 

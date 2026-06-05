@@ -146,6 +146,22 @@ on the literal Liquid embed syntax DEV's jam FAQ quotes as documentation. A
 `.nojekyll` file now disables Jekyll entirely; the game is static files and
 needs no build.
 
+## Clumps Feed the Roots
+
+Live playtesting after deployment showed branches still collecting stacked
+beings while the rest of the tree stayed calm. Rather than pushing placement
+parameters further, crowding became part of the ecosystem's story: when a
+clump persists, a later arrival eats its eldest member. The eaten being
+flashes, detaches, and drifts loose down toward the base of the tree, where
+the roots consume it in a burst of light — the energy pulses that already
+flow through root and trunk briefly surge brighter and larger, then settle
+back to normal. Crowding now resolves itself with a small narrative beat
+instead of a tuning constant, and the light a being arrived with visibly
+returns to the tree that hosted it.
+
+The roots themselves also grew too slowly, trailing the crown they were meant
+to anchor. They now lead the tree's growth instead of following it.
+
 ## Design Principles
 
 - Creation matters more than competition.

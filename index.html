@@ -340,6 +340,8 @@
     let ribbonSerial = 0;
     let gesture = null;
     let treeGrowth = 0;
+    let lastCrowdCull = 0;
+    let rootSurge = 0;
     let gestureHistory = [];
     let recordStartedAt = performance.now();
     let replaying = false;
@@ -650,6 +652,7 @@
         progress: 0,
         settleTime: creature.attachment.settleTime,
         branchIndex: placement.hostIndex,
+        born: elapsed,
         thickness: creature.thickness,
         hold: creature.hold,
         energy: creature.energy,
@@ -680,6 +683,32 @@
       for (let i = ribbons.length - 1; i >= 0; i--) {
         const ribbon = ribbons[i];
         ribbon.progress = Math.min(1, ribbon.progress + dt / ribbon.settleTime);
+        if (ribbon.falling !== undefined) {
+          // An eaten being drifts loose, sinking toward the roots that will
+          // take its light back into the tree.
+          ribbon.falling = Math.min(1, ribbon.falling + dt / 4.2);
+          const base = trunkPoint(monument().base - 4, elapsed);
+          const sway = Math.sin(elapsed * .9 + ribbon.phase);
+          for (let pi = 0; pi < ribbon.fallPoints.length; pi++) {
+            const p = ribbon.fallPoints[pi];
+            const q = pi / ribbon.fallPoints.length;
+            p.y += ((base.y - p.y) * .55 + 20) * dt;
+            p.x += ((base.x - p.x) * .55 + sway * (8 + q * 10)) * dt;
+          }
+          if (ribbon.falling >= 1) {
+            rootSurge = elapsed + 2.6;
+            for (let b = 0; b < 30; b++) {
+              particles.push(makeParticle(
+                base.x + random(-30, 30),
+                base.y + random(-6, 18),
+                ribbon.hue + b * 6,
+                random(20, 90)
+              ));
+            }
+            ribbons.splice(i, 1);
+          }
+          continue;
+        }
         if (ribbon.absorbTarget) {
           ribbon.absorbed = Math.min(1, ribbon.absorbed + dt / 2.4);
           if (ribbon.absorbed >= 1) {
@@ -691,7 +720,7 @@
         }
       }
       for (const ribbon of ribbons) {
-        if (ribbon.absorbTarget) continue;
+        if (ribbon.absorbTarget || ribbon.falling !== undefined) continue;
         const maxStart = Math.max(.04, .96 - ribbon.hostSpan);
         const center = ribbon.targetStart + ribbon.hostSpan * .5;
         let movement = ribbon.branchIndex >= 0 ? .0035 : -.0025;
@@ -740,6 +769,51 @@
           const spacing = s.spacing * (1 - i / ribbon.sourcePoints.length * .28) * (.4 + fade * .6);
           p.x = prev.x - sx / sd * spacing;
           p.y = prev.y - sy / sd * spacing;
+        }
+      }
+      // A sustained clump costs its eldest member: a later arrival eats it in
+      // a flash, and the remains drift down to be consumed by the roots.
+      for (const ribbon of ribbons) {
+        if (ribbon.absorbTarget || ribbon.falling !== undefined || ribbon.progress < 1) {
+          ribbon.crowdedFor = 0;
+          continue;
+        }
+        let overlapTotal = 0;
+        let mate = null;
+        let mateOverlap = 0;
+        for (const other of ribbons) {
+          if (other === ribbon || other.branchIndex !== ribbon.branchIndex
+            || other.absorbTarget || other.falling !== undefined) continue;
+          const overlap = intervalOverlap(ribbon.targetStart, ribbon.hostSpan, other.targetStart, other.hostSpan);
+          overlapTotal += overlap;
+          if (overlap > mateOverlap) {
+            mateOverlap = overlap;
+            mate = other;
+          }
+        }
+        ribbon.crowdMate = mate;
+        ribbon.crowdedFor = overlapTotal > ribbon.hostSpan * .5
+          ? (ribbon.crowdedFor || 0) + dt
+          : Math.max(0, (ribbon.crowdedFor || 0) - dt * 2);
+      }
+      if (elapsed - lastCrowdCull > 2.4) {
+        let victim = null;
+        for (const ribbon of ribbons) {
+          if ((ribbon.crowdedFor || 0) < 3 || !ribbon.crowdMate) continue;
+          if (ribbon.crowdMate.absorbTarget || ribbon.crowdMate.falling !== undefined) continue;
+          if (!victim || ribbon.born < victim.born) victim = ribbon;
+        }
+        if (victim) {
+          victim.fallPoints = currentRibbonPoints(victim, elapsed);
+          victim.falling = 0;
+          victim.glowUntil = elapsed + 1.4;
+          victim.crowdMate.glowUntil = elapsed + 3.2;
+          const branch = victim.branchIndex >= 0 ? swimBranches[victim.branchIndex] : null;
+          const centre = ribbonHost(victim, branch, victim.layoutStart + victim.hostSpan * .5, elapsed).host;
+          for (let i = 0; i < 26; i++) {
+            particles.push(makeParticle(centre.x, centre.y, victim.hue + i * 9, random(30, 130)));
+          }
+          lastCrowdCull = elapsed;
         }
       }
       const m = monument();
@@ -1004,10 +1078,11 @@
     }
 
     function drawLivingRibbon(ribbon, time) {
-      const points = currentRibbonPoints(ribbon, time);
+      const falling = ribbon.falling !== undefined;
+      const points = falling ? ribbon.fallPoints : currentRibbonPoints(ribbon, time);
       const morph = easeMorph(ribbon.progress);
       const breathe = 1 + Math.sin(time * (1.05 + ribbon.energy * .65) + ribbon.phase) * .16;
-      const lifeAlpha = 1 - (ribbon.absorbed || 0);
+      const lifeAlpha = falling ? 1 - ribbon.falling * .7 : 1 - (ribbon.absorbed || 0);
       if (lifeAlpha <= .01) return;
 
       const smokeLayers = [
@@ -1107,7 +1182,8 @@
       const m = monument();
       const points = [];
       const steps = 26;
-      const growth = .28 + fullness * .72;
+      // Roots lead the tree: they anchor early rather than trailing the crown.
+      const growth = .34 + Math.min(1, fullness * 1.45) * .66;
       const length = root.length * growth;
       const depth = root.depth * growth;
       const start = trunkPoint(m.base - (index % 3) * 4, time);
@@ -1182,14 +1258,26 @@
       for (const ribbon of ribbons) drawLivingRibbon(ribbon, time);
 
       const energy = .55 + .45 * Math.sin(time * .42);
+      // Consumed beings briefly surge the light flowing through root and trunk.
+      const surge = time < rootSurge ? 1 + (rootSurge - time) / 2.6 : 1;
       rootPaths.forEach((points, i) => {
         const inward = 1 - ((time * (.075 + i * .006) + i * .17) % 1);
-        drawEnergyPulse(pointAlong(points, inward), 155 + i * 22 + time * 8, 2.4 + energy * 1.5, .34 + energy * .34);
+        drawEnergyPulse(
+          pointAlong(points, inward),
+          155 + i * 22 + time * 8,
+          (2.4 + energy * 1.5) * surge,
+          Math.min(.9, (.34 + energy * .34) * surge)
+        );
       });
       for (let i = 0; i < 3; i++) {
         const rise = (time * .065 + i * .34) % 1;
         const y = m.base - (m.base - poleTop) * rise;
-        drawEnergyPulse(trunkPoint(y, time), 165 + rise * 120 + time * 6, 3 + energy * 2.2, .38 + energy * .42);
+        drawEnergyPulse(
+          trunkPoint(y, time),
+          165 + rise * 120 + time * 6,
+          (3 + energy * 2.2) * surge,
+          Math.min(.9, (.38 + energy * .42) * surge)
+        );
       }
 
       overlayCtx.shadowBlur = 0;
@@ -1362,6 +1450,8 @@
       particles.length = 0;
       treeGrowth = 0;
       ribbonSerial = 0;
+      lastCrowdCull = 0;
+      rootSurge = 0;
       elapsed = 0;
       front = 0;
       feedbackTextures.forEach(allocate);
