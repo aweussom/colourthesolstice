@@ -162,6 +162,16 @@ returns to the tree that hosted it.
 The roots themselves also grew too slowly, trailing the crown they were meant
 to anchor. They now lead the tree's growth instead of following it.
 
+A second playtest sharpened the imagery. The first fall pulled every point of
+the dying body exponentially toward the base, so it collapsed into a blob and
+dropped too fast to register. The descent is now a slow leaf-fall: the whole
+body rocks side to side as it sinks over many seconds, staying bright most of
+the way down. The consumption also changed character. Brightening the existing
+energy pulses read as a vague blink; instead, each consumed being now sends a
+ripple of its own coloured light from the root tips inward and then up the
+trunk toward the crown — in the spirit of the bioluminescent forest in
+*Avatar*, where touched light travels visibly through the network.
+
 ## Design Principles
 
 - Creation matters more than competition.

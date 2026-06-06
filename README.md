@@ -51,7 +51,8 @@ interprets every arrival and finds a place for it.
 - Restrained spontaneous births after a period of inactivity.
 - Older attached beings can be absorbed by newer ones, transferring a brief glow.
 - Crowded clusters resolve themselves: a later arrival eats the eldest being,
-  which flashes, drifts down, and is consumed by the roots in a surge of light.
+  which flashes and falls like a leaf; the roots consume it and send a ripple
+  of its colour up through the trunk.
 
 ## Save, Replay, and Export
 
