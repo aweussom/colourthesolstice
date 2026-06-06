@@ -85,6 +85,31 @@ The project is not opposed to libraries. A library should be used when it
 provides clearly better specialised capabilities; direct browser code is
 preferred when it reaches equal quality with less machinery.
 
+## Tuning
+
+Central tuning constants live in the `SETTINGS` object near the top of the
+script in `index.html`:
+
+| Constant | Default | Effect |
+| --- | --- | --- |
+| `feedbackDecay` | 0.965 | How much of the previous frame survives |
+| `feedbackZoom` | 1.0025 | Outward drift of the psychedelic trails |
+| `feedbackRotation` | 0.0008 | Slow swirl of the trails |
+| `feedbackWarp` | 0.0045 | Wobble distortion of the trails |
+| `maxCreatures` | 24 | Simultaneous swimmers |
+| `maxRibbons` | 14 | Settled beings before elders are absorbed |
+| `starCount` | 310 | Background stars |
+| `crowdOverlap` | 0.42 | Overlapped span fraction that counts as crowded |
+| `crowdPatience` | 2.5 s | Sustained crowding before a being is eaten |
+| `crowdCooldown` | 2.4 s | Minimum time between clump culls |
+| `fallDuration` | 9 s | Longest leaf-fall to the roots |
+| `fallRock` | 26 | Side-to-side rocking strength of the descent |
+| `rippleRootTime` | 1.1 s | Consumption ripple's travel through the roots |
+| `rippleTrunkTime` | 2.1 s | Consumption ripple's climb up the trunk |
+
+Per-being variation (settle time, helix turns, width, sway) is derived from
+the gesture and seeded randomness in `spawnCreature()`.
+
 ## Design Principles
 
 - Creation matters more than competition.

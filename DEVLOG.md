@@ -172,6 +172,40 @@ ripple of its own coloured light from the root tips inward and then up the
 trunk toward the crown — in the spirit of the bioluminescent forest in
 *Avatar*, where touched light travels visibly through the network.
 
+## Possible Futures: Trees in Competition
+
+A re-read of the author's earlier RTS experiment *XBattle — Galcon Fusion*
+suggested a thought experiment, recorded here strictly as a *could*, not a
+*should*. Trees are, after all, in competition.
+
+Colour The Solstice could one day host two or more Yggdrasils sharing a sky,
+and several of XBattle's mechanics translate surprisingly directly into
+garden terms:
+
+- Its planet economy — production capacity, decay above a threshold, an
+  overstretch penalty for holding too much — is already half-present here:
+  clump die-off *is* decay above capacity.
+- Siege suppression could become shading: a taller crown slows a rival's
+  growth wherever it overshadows it.
+- The desperation bonus (XBattle's losing players produce double) fits a
+  gentle world: a struggling tree's beings would glow brighter and settle
+  faster, so nobody's garden ever feels dead.
+- The concerted-attack window (waves arriving together outperform a trickle)
+  could reward rhythmic play: beings released in close succession establish
+  a new branch faster than the same beings released one by one.
+- Supply routes could become shared root networks between groves, with the
+  consumption ripples already in the game carrying the traffic.
+
+Control would stay indirect — call it reverse bonsai. A bonsai artist prunes
+toward a shape; here the player would *feed* toward one. Gestures already
+carry direction, length, and energy, and those could bias where a tree
+invests its growth without ever becoming commands. The tree keeps
+interpreting.
+
+None of this is planned for the jam. The scoreless toy is the project. But if
+a competitive mode ever happens, it should be grown out of these existing
+mechanics rather than bolted on.
+
 ## Design Principles
 
 - Creation matters more than competition.

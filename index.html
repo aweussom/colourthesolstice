@@ -150,14 +150,28 @@
       return;
     }
 
+    // Central tuning surface. Feedback constants shape the psychedelic
+    // trails; ecosystem constants shape how beings settle, crowd, fall, and
+    // feed the roots. See the Tuning section in README.md.
     const SETTINGS = {
       pixelRatioCap: 1.5,
-      feedbackDecay: 0.965,
-      feedbackZoom: 1.0025,
-      feedbackRotation: 0.0008,
-      feedbackWarp: 0.0045,
-      maxCreatures: 24,
-      starCount: 310
+      // Feedback shader
+      feedbackDecay: 0.965,     // how much of the previous frame survives
+      feedbackZoom: 1.0025,     // outward drift of the trails
+      feedbackRotation: 0.0008, // slow swirl of the trails
+      feedbackWarp: 0.0045,     // wobble distortion of the trails
+      // Scene population
+      maxCreatures: 24,         // simultaneous swimmers
+      maxRibbons: 14,           // settled beings before elders are absorbed
+      starCount: 310,
+      // Crowding and the leaf-fall cycle
+      crowdOverlap: .42,        // overlapped fraction of a span that counts as crowded
+      crowdPatience: 2.5,       // seconds of sustained crowding before a cull
+      crowdCooldown: 2.4,       // minimum seconds between culls
+      fallDuration: 9,          // seconds a falling leaf may take to reach the roots
+      fallRock: 26,             // side-to-side rocking strength of the descent
+      rippleRootTime: 1.1,      // seconds the consumption ripple spends in the roots
+      rippleTrunkTime: 2.1      // seconds the ripple spends climbing the trunk
     };
 
     const vertexSource = `
@@ -662,7 +676,7 @@
         glowUntil: 0
       };
       ribbons.push(newRibbon);
-      if (ribbons.length > 14) {
+      if (ribbons.length > SETTINGS.maxRibbons) {
         const elder = ribbons.find(ribbon =>
           ribbon !== newRibbon
           && ribbon.progress >= 1
@@ -687,7 +701,7 @@
         if (ribbon.falling !== undefined) {
           // An eaten being falls like a leaf: a slow rocking descent toward
           // the roots that will take its light back into the tree.
-          ribbon.falling = Math.min(1, ribbon.falling + dt / 9);
+          ribbon.falling = Math.min(1, ribbon.falling + dt / SETTINGS.fallDuration);
           const m2 = monument();
           const base = trunkPoint(m2.base - 4, elapsed);
           const sink = 40 + ribbon.falling * 40;
@@ -696,7 +710,7 @@
             const q = pi / ribbon.fallPoints.length;
             const rock = Math.sin(elapsed * 1.6 + ribbon.phase + q * 1.2);
             p.y += (sink + rock * 9) * dt;
-            p.x += (rock * 26 + (base.x - p.x) * .12) * dt;
+            p.x += (rock * SETTINGS.fallRock + (base.x - p.x) * .12) * dt;
           }
           const head = ribbon.fallPoints[0];
           if (ribbon.falling >= 1 || head.y >= m2.base - 10) {
@@ -797,14 +811,14 @@
           }
         }
         ribbon.crowdMate = mate;
-        ribbon.crowdedFor = overlapTotal > ribbon.hostSpan * .42
+        ribbon.crowdedFor = overlapTotal > ribbon.hostSpan * SETTINGS.crowdOverlap
           ? (ribbon.crowdedFor || 0) + dt
           : Math.max(0, (ribbon.crowdedFor || 0) - dt * 2);
       }
-      if (elapsed - lastCrowdCull > 2.4) {
+      if (elapsed - lastCrowdCull > SETTINGS.crowdCooldown) {
         let victim = null;
         for (const ribbon of ribbons) {
-          if ((ribbon.crowdedFor || 0) < 2.5 || !ribbon.crowdMate) continue;
+          if ((ribbon.crowdedFor || 0) < SETTINGS.crowdPatience || !ribbon.crowdMate) continue;
           if (ribbon.crowdMate.absorbTarget || ribbon.crowdMate.falling !== undefined) continue;
           if (!victim || ribbon.born < victim.born) victim = ribbon;
         }
@@ -1290,12 +1304,12 @@
       for (let i = rootSurges.length - 1; i >= 0; i--) {
         const ripple = rootSurges[i];
         const age = time - ripple.at;
-        if (age > 3.2) {
+        if (age > SETTINGS.rippleRootTime + SETTINGS.rippleTrunkTime) {
           rootSurges.splice(i, 1);
           continue;
         }
-        if (age < 1.1) {
-          const inward = age / 1.1;
+        if (age < SETTINGS.rippleRootTime) {
+          const inward = age / SETTINGS.rippleRootTime;
           rootPaths.forEach((points, ri) => {
             drawEnergyPulse(
               pointAlong(points, 1 - inward),
@@ -1305,7 +1319,7 @@
             );
           });
         } else {
-          const rise = (age - 1.1) / 2.1;
+          const rise = (age - SETTINGS.rippleRootTime) / SETTINGS.rippleTrunkTime;
           const y = m.base - (m.base - poleTop) * rise;
           drawEnergyPulse(
             trunkPoint(y, time),
