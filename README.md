@@ -53,6 +53,8 @@ interprets every arrival and finds a place for it.
 - Crowded clusters resolve themselves: a later arrival eats the eldest being,
   which flashes and falls like a leaf; the roots consume it and send a ripple
   of its colour up through the trunk.
+- A generative ambient soundbed evolves through crossfading drones, white-wave
+  layers, gesture accents, attachment transitions, absorption, and root ripples.
 
 ## Save, Replay, and Export
 
@@ -60,12 +62,20 @@ The lower-right controls preserve a creation without interrupting play:
 
 - **Save** stores the gesture sequence in browser storage.
 - **Replay** regrows Yggdrasil and recreates the saved gestures.
-- **0.5x**, **1x**, and **2x** set replay speed.
-- **PNG** exports the current composition.
+- **0.5x**, **1x**, and **2x** scale the whole replay, including creature
+  movement and tree growth.
+- **Scene PNG** exports the complete rendered composition.
+- **Tree PNG** exports Yggdrasil and its settled beings on transparency for
+  use in artwork or compositing.
+- **Record** captures the complete composition without the controls and
+  downloads a WebM or MP4 with the live soundbed when the browser supports
+  `MediaRecorder`.
+- **Sound** mutes or restores audio and remembers the preference locally.
 
-Browser-native video export is being treated as optional. PNG and deterministic
-replay are more portable and reliable than promising MP4 support across
-browsers.
+Browsers require a player gesture before audio begins. Native recording remains
+intentionally simple; for a narrated or edited jam demo, or in a browser without
+compatible recording support, use the operating system's screen recorder or a
+browser recording extension.
 
 ## Architecture
 
@@ -80,6 +90,9 @@ Everything currently lives in one directly clickable `index.html`.
   surrounding colourscape feeds back recursively.
 - **Plain JavaScript:** gesture interpretation, movement, growth, attachment,
   replay, and ecosystem behavior.
+- **Web Audio:** embedded mono Ogg assets feed an event-driven soundbed with
+  seeded one-shots, automatic drone evolution, convolution reverb, echo, EQ,
+  compression, mute persistence, and recording output.
 
 The project is not opposed to libraries. A library should be used when it
 provides clearly better specialised capabilities; direct browser code is
@@ -106,6 +119,8 @@ script in `index.html`:
 | `fallRock` | 26 | Side-to-side rocking strength of the descent |
 | `rippleRootTime` | 1.1 s | Consumption ripple's travel through the roots |
 | `rippleTrunkTime` | 2.1 s | Consumption ripple's climb up the trunk |
+| `audioDroneCrossfade` | 12 s | Automatic drone transition duration |
+| `audioMaster` | 0.7 | Overall soundbed output level |
 
 Per-being variation (settle time, helix turns, width, sway) is derived from
 the gesture and seeded randomness in `spawnCreature()`.

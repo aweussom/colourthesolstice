@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Colour The Solstice - Audio Spike</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: #05040c;
+      color: #f2edff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 15%, #32205e88, transparent 36rem),
+        radial-gradient(circle at 85% 70%, #034b5b66, transparent 34rem),
+        #05040c;
+    }
+
+    main {
+      width: min(1100px, calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 2rem 0 4rem;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: .35rem; font-size: clamp(1.8rem, 6vw, 3.5rem); }
+    h2 { font-size: 1rem; letter-spacing: .08em; text-transform: uppercase; }
+    p { color: #bdb3d8; }
+
+    button, input { accent-color: #9d72ff; }
+
+    button {
+      border: 1px solid #9d72ff88;
+      border-radius: 999px;
+      padding: .65rem 1rem;
+      background: #251644;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    button:hover { background: #392168; }
+    button.active { background: #7448c8; }
+
+    .panel {
+      margin-bottom: 1.25rem;
+      border: 1px solid #b9a2ff26;
+      border-radius: 1rem;
+      padding: 1rem;
+      background: #100b1dcc;
+      box-shadow: 0 1rem 4rem #0008;
+      backdrop-filter: blur(12px);
+    }
+
+    .effects, .tracks, .events {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: .8rem;
+    }
+
+    .control {
+      display: grid;
+      gap: .35rem;
+      font-size: .8rem;
+      color: #cabfe5;
+    }
+
+    .control span {
+      display: flex;
+      justify-content: space-between;
+      gap: .5rem;
+    }
+
+    .track {
+      display: grid;
+      gap: .75rem;
+      border: 1px solid #ffffff14;
+      border-radius: .8rem;
+      padding: .9rem;
+      background: linear-gradient(145deg, #201439aa, #0c1324aa);
+    }
+
+    .track strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .track-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .45rem;
+    }
+
+    .track button { padding: .45rem .75rem; }
+    .event {
+      display: grid;
+      gap: .6rem;
+      align-content: start;
+      border: 1px solid #ffffff14;
+      border-radius: .8rem;
+      padding: .9rem;
+      background: #131023aa;
+    }
+
+    .event p {
+      min-height: 2.6em;
+      margin: 0;
+      font-size: .82rem;
+    }
+
+    .status { min-height: 1.4rem; color: #88e9dc; }
+    .warning { color: #ffcf86; }
+
+    @media (max-width: 540px) {
+      main { width: min(100% - 1rem, 1100px); padding-top: 1rem; }
+      .effects, .tracks { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Audio laboratory</h1>
+        <p>Liquid Morphine textures for Colour The Solstice.</p>
+      </div>
+      <div class="track-buttons">
+        <button id="start">Start audio</button>
+        <button id="stop">Stop all</button>
+      </div>
+    </header>
+
+    <section class="panel">
+      <h2>Shared effects</h2>
+      <div class="effects">
+        <label class="control">
+          <span>Low shelf <output id="low-value">0 dB</output></span>
+          <input id="low" type="range" min="-18" max="18" value="0" step="1">
+        </label>
+        <label class="control">
+          <span>High shelf <output id="high-value">0 dB</output></span>
+          <input id="high" type="range" min="-18" max="18" value="0" step="1">
+        </label>
+        <label class="control">
+          <span>Echo time <output id="delay-value">320 ms</output></span>
+          <input id="delay" type="range" min="40" max="1000" value="320" step="10">
+        </label>
+        <label class="control">
+          <span>Echo feedback <output id="feedback-value">32%</output></span>
+          <input id="feedback" type="range" min="0" max="85" value="32" step="1">
+        </label>
+        <label class="control">
+          <span>Echo mix <output id="echo-value">18%</output></span>
+          <input id="echo" type="range" min="0" max="75" value="18" step="1">
+        </label>
+        <label class="control">
+          <span>Reverb mix <output id="reverb-value">28%</output></span>
+          <input id="reverb" type="range" min="0" max="100" value="28" step="1">
+        </label>
+        <label class="control">
+          <span>Master <output id="master-value">70%</output></span>
+          <input id="master" type="range" min="0" max="100" value="70" step="1">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Soundbed state</h2>
+      <p id="status" class="status">Start audio, then change the population or fire game events.</p>
+      <div class="effects">
+        <label class="control">
+          <span>Settled population <output id="population-value">0</output></span>
+          <input id="population" type="range" min="0" max="20" value="0" step="1">
+        </label>
+        <label class="control">
+          <span>Drone crossfade <output id="crossfade-value">12 s</output></span>
+          <input id="crossfade" type="range" min="6" max="20" value="12" step="1">
+        </label>
+        <label class="control">
+          <span>Automatic drone evolution</span>
+          <input id="auto-drones" type="checkbox" checked>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Game event simulation</h2>
+      <div class="events">
+        <div class="event">
+          <strong>Release</strong>
+          <p>Seeded harp, percussion, or long cinematic accent shaped by gesture.</p>
+          <button data-event="release">Release being</button>
+        </div>
+        <div class="event">
+          <strong>Attach</strong>
+          <p>Reverse transition followed by a long cinematic arrival texture.</p>
+          <button data-event="attach">Attach to tree</button>
+        </div>
+        <div class="event">
+          <strong>Absorb</strong>
+          <p>Low transition accent and a temporary filtered hush.</p>
+          <button data-event="absorb">Absorb elder</button>
+        </div>
+        <div class="event">
+          <strong>Ripple</strong>
+          <p>Generated tone rising from roots toward the crown.</p>
+          <button data-event="ripple">Send ripple</button>
+        </div>
+        <div class="event">
+          <strong>Percussion</strong>
+          <p>Seeded short impact for release and gesture experiments.</p>
+          <button data-event="percussion">Play percussion</button>
+        </div>
+        <div class="event">
+          <strong>Texture</strong>
+          <p>Medium-length metallic or string-like punctuation.</p>
+          <button data-event="texture">Play texture</button>
+        </div>
+        <div class="event">
+          <strong>Impact</strong>
+          <p>Long cinematic material shared by release, attachment, and absorption.</p>
+          <button data-event="impact">Play impact</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>CinematicImpact audition</h2>
+      <div id="auditions" class="tracks"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Manual drone audition</h2>
+      <div id="tracks" class="tracks"></div>
+    </section>
+  </main>
+
+  <script src="audio-system.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const audio = new AudioSystem({ baseUrl: "audio/" });
+      const drones = [
+        "drone1.ogg", "drone2.ogg", "drone3.ogg", "drone4.ogg",
+        "drone5.ogg", "drone6.ogg", "drone7.ogg"
+      ];
+      const auditions = [
+        "percussion-bash-1.ogg",
+        "percussion-bash-2.ogg",
+        "percussion-knock.ogg",
+        "percussion-tibetan-slam.ogg",
+        "texture-core-string.ogg",
+        "texture-ridged-runner.ogg",
+        "impact-reflex.ogg",
+        "impact-roll-off.ogg",
+        "impact-grate.ogg",
+        "impact-cycle-down.ogg"
+      ];
+      const status = document.querySelector("#status");
+      const tracksElement = document.querySelector("#tracks");
+      const auditionsElement = document.querySelector("#auditions");
+
+      function bindRange(id, format, apply) {
+        const input = document.querySelector(`#${id}`);
+        const output = document.querySelector(`#${id}-value`);
+        const update = () => {
+          const value = Number(input.value);
+          output.value = format(value);
+          apply(value);
+        };
+        input.addEventListener("input", update);
+        update();
+      }
+
+      function bindEffects() {
+        bindRange("low", value => `${value} dB`, value => audio.setEffects({ low: value }));
+        bindRange("high", value => `${value} dB`, value => audio.setEffects({ high: value }));
+        bindRange("delay", value => `${value} ms`, value => audio.setEffects({ delay: value / 1000 }));
+        bindRange("feedback", value => `${value}%`, value => audio.setEffects({ feedback: value / 100 }));
+        bindRange("echo", value => `${value}%`, value => audio.setEffects({ echo: value / 100 }));
+        bindRange("reverb", value => `${value}%`, value => audio.setEffects({ reverb: value / 100 }));
+        bindRange("master", value => `${value}%`, value => audio.setEffects({ master: value / 100 }));
+      }
+
+      function addDroneButton(filename) {
+        const name = filename.replace(".ogg", "");
+        const element = document.createElement("article");
+        element.className = "track";
+        element.innerHTML = `
+          <strong>${name}</strong>
+          <button>Crossfade to ${name}</button>
+        `;
+        element.querySelector("button").addEventListener("click", async () => {
+          await audio.selectDrone(filename);
+          status.textContent = `Crossfading to ${name}.`;
+        });
+        tracksElement.append(element);
+      }
+
+      function addAuditionButton(filename) {
+        const name = filename.replace(".ogg", "");
+        const element = document.createElement("article");
+        element.className = "track";
+        element.innerHTML = `
+          <strong>${name}</strong>
+          <button>Play once</button>
+        `;
+        element.querySelector("button").addEventListener("click", async () => {
+          await audio.start();
+          const gain = name.startsWith("impact-") ? .11
+            : name.startsWith("percussion-") ? .14
+              : .1;
+          await audio.playOneShot(filename, { gain, attack: .01 });
+          status.textContent = `Auditioning ${name}.`;
+        });
+        auditionsElement.append(element);
+      }
+
+      document.querySelector("#start").addEventListener("click", async () => {
+        await audio.start();
+        status.textContent = "AudioSystem is running.";
+      });
+      document.querySelector("#stop").addEventListener("click", () => {
+        audio.stop();
+        status.textContent = "AudioSystem stopped.";
+      });
+
+      const population = document.querySelector("#population");
+      population.addEventListener("input", async () => {
+        const value = Number(population.value);
+        document.querySelector("#population-value").value = value;
+        await audio.setPopulation(value);
+        status.textContent = `Population ${value}: soundbed updated.`;
+      });
+
+      const crossfade = document.querySelector("#crossfade");
+      crossfade.addEventListener("input", () => {
+        const value = Number(crossfade.value);
+        document.querySelector("#crossfade-value").value = `${value} s`;
+        audio.setCrossfadeSeconds(value);
+      });
+
+      document.querySelector("#auto-drones").addEventListener("change", event => {
+        audio.setAutoDrones(event.target.checked);
+        status.textContent = event.target.checked
+          ? "Automatic drone evolution enabled."
+          : "Automatic drone evolution paused.";
+      });
+
+      for (const button of document.querySelectorAll("[data-event]")) {
+        button.addEventListener("click", async () => {
+          const eventName = button.dataset.event;
+          const seed = Math.floor(performance.now() * 1000);
+          await audio[eventName]({
+            seed,
+            energy: .35 + Math.random() * .6,
+            gestureWeight: Math.random(),
+            pan: Math.random() * 1.6 - .8
+          });
+          status.textContent = `${eventName} event fired with seed ${seed}.`;
+        });
+      }
+
+      bindEffects();
+      for (const filename of auditions) addAuditionButton(filename);
+      for (const filename of drones) addDroneButton(filename);
+      window.solsticeAudio = audio;
+    })();
+  </script>
+</body>
+</html>

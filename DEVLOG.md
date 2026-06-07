@@ -206,6 +206,96 @@ None of this is planned for the jam. The scoreless toy is the project. But if
 a competitive mode ever happens, it should be grown out of these existing
 mechanics rather than bolted on.
 
+## Capturing the Whole Colourscape
+
+The first PNG button accidentally captured only the foreground canvas. WebGL's
+drawing buffer was not preserved after presentation, so by the time a separate
+2D canvas tried to copy it, the psychedelic background could already be gone.
+The result was still useful: a transparent Yggdrasil makes an excellent article
+asset. Export now makes both intentions explicit. Scene PNG composites WebGL
+and the foreground immediately after a rendered frame, while Tree PNG preserves
+the transparent foreground-only version.
+
+Replay speed had a similar mismatch between interface and implementation. The
+selector changed only the delays between creature births; once born, every
+being still swam and grew the tree at normal speed. Replay now has a virtual
+clock that scales event timing, movement, morphing, and growth together, using
+small simulation steps at higher speed to keep the ecosystem stable.
+
+The same frame-synchronous composite canvas also made browser-native recording
+practical without asking WebGL to preserve every drawing buffer. Record captures
+the clean composition as WebM or MP4 through `MediaRecorder`, depending on the
+browser. It remains deliberately silent: screen recording is still the better
+fallback when the submission video needs narration, editing, or browser chrome.
+
+## Growing a Soundbed
+
+The first audio experiment stays outside the main runtime while its musical
+rules are still being discovered. A small Liquid Morphine set was reduced to
+22.05 kHz mono Ogg files, making twelve source sounds roughly half a megabyte
+without giving up the single-download character of the toy.
+
+The useful result was not a conventional playlist. Numbered drones form one
+slowly crossfading bed, while white-wave textures can gather above it as the
+settled population grows. Harps became repeatable release accents, the stretched
+reverse drone became a lifecycle transition, and a generated rising tone follows
+the same root-to-crown path as a consumption ripple. EQ, echo, and reverb belong
+to the state of the ecosystem rather than to a fixed mix.
+
+That experiment is now a small event-driven `AudioSystem`. It accepts release,
+attachment, absorption, ripple, and population changes, with seeded variation
+where replay will eventually need it. Keeping the system behind those events
+lets the soundbed mature in isolation before the game takes on audio startup,
+mute persistence, recording, and lifecycle concerns.
+
+A second audition added a CinematicImpact family. The short knocks, metal
+strikes, and blunt hits work as percussive alternatives to the two harps. The
+medium string and ridged textures give arrivals a less predictable edge. More
+surprisingly, all four long cinematic sounds sat comfortably inside the
+crossfading drones instead of overwhelming them.
+
+Those long sounds therefore belong to ordinary creation, not only rare dramatic
+events. Attachment now places one after the reverse-drone approach, while a long
+or energetic release has an increased chance of carrying one into the world.
+Absorption may still use a slightly stronger version. A full audition against
+the running soundbed confirmed that all ten additions fit, so the division into
+percussion, texture, and long accent is now part of the working design rather
+than a temporary sorting guess.
+
+Repeated releases exposed one small musical rule: random selection can repeat
+the same short hit often enough to sound mechanical. Percussive releases now
+rotate through all four short sounds before repeating, while seeded playback
+rate still gives each pass some variation.
+
+The drones needed a different treatment from the event sounds. Four-second
+crossfades made their short source loops announce every change, even when the
+samples themselves belonged together. Each drone now repeats three to five
+times before moving automatically to the next, with a twelve-second
+cosine-shaped crossfade. A separate long convolution space and quiet feedback
+echo smear the loop boundaries without putting the same enormous reverb on
+harps, impacts, and ripples. This produced continuity without committing to
+offline reversal or granular synthesis before those heavier techniques are
+actually needed.
+
+With the spike sounding coherent, the audio system moved into the actual toy.
+All twenty-two mono Ogg files are Base64 data URIs inside `index.html`, keeping
+the project directly clickable, offline, and self-contained at a little over
+one megabyte. A small regeneration script keeps that generated block tied to
+the audition sources rather than turning it into an opaque hand-edited blob.
+
+The integration follows the beings' existing lifecycle. Player releases choose
+seeded accents; attachment brings the reverse approach and a long arrival;
+crowding or replacement triggers absorption; and the root consumption moment
+launches the rising ripple tone. Settled population changes the drone and
+white-wave density. Ambient births remain quiet so the world can stay alive
+without sounding as though it is playing itself.
+
+Audio starts only after a player gesture, and a remembered Sound control can
+mute the master without dismantling the soundbed. Replay reuses creature seeds,
+so its audible variation follows the recorded creation. Browser-native
+recording now combines the canvas stream with a cloned Web Audio output track;
+the OS or browser recorder remains the fallback for narration and editing.
+
 ## Design Principles
 
 - Creation matters more than competition.
